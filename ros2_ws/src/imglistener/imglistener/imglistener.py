@@ -2,6 +2,9 @@
 import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
+from sensor_msgs.msg import PointCloud2
+import std_msgs.msg
+import sensor_msgs_py.point_cloud2 as pcl2
 from cv_bridge import CvBridge
 import cv2
 import math
@@ -9,10 +12,16 @@ class ImageSubscriber(Node):
     def __init__(self):
         super().__init__('image_subscriber')
         self.bridge = CvBridge()
+        # Subscribe to RGB image topic
         self.subscription = self.create_subscription(Image,
             '/serf01/nav_rgbd_1/rgb/image_raw', self.listener_callback_rgb, 10)
+        # Subscribe to depth image topic
         self.subscription = self.create_subscription(Image,
             '/serf01/nav_rgbd_1/depth/image_raw', self.listener_callback_depth, 10)
+        # Publisher for 3D pointcloud
+        self.pcl_publisher = self.create_publisher(PointCloud2, '/serf01/nav_rgbd_1/pointcloud', 10)
+        
+        
         self.des_queue = None
         self.depth_frame = None
         # Initiate ORB detector
@@ -23,6 +32,9 @@ class ImageSubscriber(Node):
         self.cv = 241.181
         # Focal length 
         self.f = 526.61
+
+        # Store 3D points
+        self.points_3d = []
 
 
     def listener_callback_rgb(self,msg):
@@ -51,24 +63,38 @@ class ImageSubscriber(Node):
         kp_clean, des_clean = self.orb.compute(frame, kp_clean)
 
         for point in kp_clean:
-            depth = self.depth_frame[int(point.pt[1]), int(point.pt[0])]
+            depth = self.depth_frame[int(point.pt[1]), int(point.pt[0])] / 1000.0
             u = self.cu - point.pt[0]
             v = point.pt[1]-self.cv
 
-            phi1 = math.atan2(u, self.f)
-            phi2 = math.atan2(v, self.f)
-            x = depth * math.tan(phi1)
-            y = depth * math.tan(phi2)
+            #phi1 = math.atan2(u, self.f)
+            #phi2 = math.atan2(v, self.f)
+            #x = depth * math.tan(phi1)
+            #y = depth * math.tan(phi2)
+            #z = depth
+
+            # 3D coordinates calculation
+            x = (point.pt[0] - self.cu) * depth / self.f
+            y = (point.pt[1] - self.cv) * depth / self.f
             z = depth
-            
-            control_u = self.f*(x/z)
-            control_v = self.f*(y/z)
-    
-            print(f"Real coordinates: ({(u):.2f}, {(v):.2f}), Control commands: ({control_u:.2f}, {control_v:.2f}), Angles: ({math.degrees(phi1):.2f} deg, {math.degrees(phi2):.2f} deg)")
+
+            #control_u = self.f*(x/z)
+            #control_v = self.f*(y/z)
+            #print(f"Real coordinates: ({(u):.2f}, {(v):.2f}), Control commands: ({control_u:.2f}, {control_v:.2f})")
+            self.points_3d.append((x, y, z))
         # draw keypoints in green
         img2 = cv2.drawKeypoints(frame, kp_clean, None, color=(0,255,0), flags=0)
         cv2.imshow("Feature + Depth",img2)
         cv2.waitKey(1)
+        # publish 3D points as PointCloud2 message
+        header = std_msgs.msg.Header()
+        header.stamp = self.get_clock().now().to_msg()
+        header.frame_id = 'feature_points'
+        pointcloud_msg = pcl2.create_cloud_xyz32(header, self.points_3d)
+        self.pcl_publisher.publish(pointcloud_msg)
+
+        # empty the 3D points list for the next frame
+        self.points_3d = []
 
         if(self.des_queue is not None):
             # create BFMatcher object
