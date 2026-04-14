@@ -142,8 +142,37 @@ class ImageSubscriber(Node):
             matches = bf.match(self.keyframes[0]['des'], des_clean)
             matches = sorted(matches, key = lambda x:x.distance)
             print(f"Number of matches: {len(matches)}")
+            matrix_zero_3d = []
+            matrix_second_3d = []
+
+            for match in matches:
+                idx1 = match.queryIdx
+                idx2 = match.trainIdx
+                matrix_zero_3d.append(self.keyframes[0]['points_3d'][idx1])
+                matrix_second_3d.append(points_np[idx2])
+                
+
             #Kabsch Algorithmus
 
+            
+            matrix_zero = np.delete(matrix_zero_3d, 1, axis=1) # remove y coordinate
+            matrix_second = np.delete(matrix_second_3d, 1, axis=1) # remove y coordinate
+
+            P_middle = np.mean(matrix_zero, axis=0) #p_quer
+            Q_middle = np.mean(matrix_second, axis=0) #q_quer
+            
+            P_centered = matrix_zero - P_middle #p_strich
+            Q_centered = matrix_second - Q_middle #p_strich
+
+
+
+            teta = math.atan2(sum(Q_centered[:,0]*P_centered[:,1] - Q_centered[:,1]*P_centered[:,0]), sum(Q_centered[:,0]*P_centered[:,0] + Q_centered[:,1]*P_centered[:,1]))
+            print(f"Rotation angle (teta): {math.degrees(teta):.2f} degrees")
+
+            Rotation_matrix = np.array([[math.cos(teta), -math.sin(teta)],
+                                        [math.sin(teta), math.cos(teta)]])
+            Translation = P_middle - Rotation_matrix @ Q_middle
+            print(f"Translation vector: {Translation}")
 
 
 
