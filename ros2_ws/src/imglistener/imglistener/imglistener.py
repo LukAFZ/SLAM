@@ -8,6 +8,8 @@ import sensor_msgs_py.point_cloud2 as pcl2
 from cv_bridge import CvBridge
 import cv2
 import math
+import numpy as np
+
 class ImageSubscriber(Node):
     def __init__(self):
         super().__init__('image_subscriber')
@@ -34,7 +36,12 @@ class ImageSubscriber(Node):
         self.f = 526.61
 
         # Store 3D points
-        self.points_3d = []
+        self.current_points_3d = []
+        self.current_descriptors = []
+        self.point_history = []
+
+        self.keyframes = []
+        self.frame_index = 0
 
 
     def listener_callback_rgb(self,msg):
@@ -58,11 +65,18 @@ class ImageSubscriber(Node):
                     text = f"{depth:.2f} m"
                     cv2.putText(frame, text, (x + 5, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1)
                     kp_clean.append(point)
-
+        else:
+            return # skip processing if depth frame is not available
         # compute the descriptors with ORB
         kp_clean, des_clean = self.orb.compute(frame, kp_clean)
+        # for i in range(len(kp_clean)):
+        #   point = kp_clean[i]
+        #   des = des_clean[i]
 
-        for point in kp_clean:
+        # for point, des in zip(kp_clean, des_clean):
+        #   ...
+        
+        for point, des in zip(kp_clean, des_clean):
             depth = self.depth_frame[int(point.pt[1]), int(point.pt[0])] / 1000.0
             u = self.cu - point.pt[0]
             v = point.pt[1]-self.cv
@@ -81,7 +95,17 @@ class ImageSubscriber(Node):
             #control_u = self.f*(x/z)
             #control_v = self.f*(y/z)
             #print(f"Real coordinates: ({(u):.2f}, {(v):.2f}), Control commands: ({control_u:.2f}, {control_v:.2f})")
-            self.points_3d.append((x, y, z))
+            self.current_points_3d.append((x, y, z))
+            self.current_descriptors.append(des)
+        points_np = np.array(self.current_points_3d)
+        des_np = np.array(self.current_descriptors)
+
+        # store keyframe data
+        self.keyframes.append({
+            'points_3d': points_np,
+            'des': des_np
+        })
+
         # draw keypoints in green
         img2 = cv2.drawKeypoints(frame, kp_clean, None, color=(0,255,0), flags=0)
         cv2.imshow("Feature + Depth",img2)
@@ -90,11 +114,15 @@ class ImageSubscriber(Node):
         header = std_msgs.msg.Header()
         header.stamp = self.get_clock().now().to_msg()
         header.frame_id = 'feature_points'
-        pointcloud_msg = pcl2.create_cloud_xyz32(header, self.points_3d)
+        pointcloud_msg = pcl2.create_cloud_xyz32(header, self.current_points_3d) # only publish x,y,z coordinates, ignore descriptors
         self.pcl_publisher.publish(pointcloud_msg)
+        # TF tree missing
+        # ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 base_link feature_points
 
         # empty the 3D points list for the next frame
-        self.points_3d = []
+        self.current_points_3d = []
+        self.current_descriptors = []
+        
 
         if(self.des_queue is not None):
             # create BFMatcher object
@@ -108,7 +136,21 @@ class ImageSubscriber(Node):
             #cv2.imshow("Matches",img3)
             #cv2.waitKey(1)
 
+
+        if(self.frame_index == 20):
+            bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+            matches = bf.match(self.keyframes[0]['des'], des_clean)
+            matches = sorted(matches, key = lambda x:x.distance)
+            print(f"Number of matches: {len(matches)}")
+            #Kabsch Algorithmus
+
+
+
+
         
+
+        self.frame_index += 1
+
         # store current descriptors for next frame matching
         self.des_queue = des_clean
         
