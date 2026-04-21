@@ -36,6 +36,8 @@ class ImageSubscriber(Node):
         self.cv = 241.181
         # Focal length 
         self.f = 526.61
+        self.frame_counter = 10
+        self.min_matches = 50
 
         # Store 3D points
         self.current_points_3d = []
@@ -44,9 +46,10 @@ class ImageSubscriber(Node):
 
         self.keyframes = []
         self.frame_index = 0
-        self.frame_counter = 10
         self.to_proceed_frames = 1
         self.queue_index = 0
+        self.sum_t = 0
+        self.sum_deg = 0
 
     def get_kapsch_2d(self, P, Q):    
 
@@ -149,7 +152,7 @@ class ImageSubscriber(Node):
                 x, y = int(point.pt[0]), int(point.pt[1])
                 # get depth value at keypoint location and convert to meters
                 depth = self.depth_frame[y, x]
-                if(depth > 400 and depth < 4000): # filter out invalid depth values
+                if(depth > 400 and depth < 4500): # filter out invalid depth values
                     text = f"{depth:.1f} mm"
                     cv2.putText(frame, text, (x + 5, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1)
                     kp_clean.append(point)
@@ -199,7 +202,8 @@ class ImageSubscriber(Node):
         header = std_msgs.msg.Header()
         header.stamp = self.get_clock().now().to_msg()
         header.frame_id = 'kinect_depth'
-        pointcloud_msg = pcl2.create_cloud_xyz32(header, self.current_points_3d) # only publish x,y,z coordinates, ignore descriptors
+        points_in_meters = [(p[0]/1000, p[1]/1000, p[2]/1000) for p in self.current_points_3d] # convert from mm to meters
+        pointcloud_msg = pcl2.create_cloud_xyz32(header, points_in_meters) # only publish x,y,z coordinates, ignore descriptors
         self.pcl_publisher.publish(pointcloud_msg)
         # TF tree missing
         # ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 base_link feature_points
@@ -227,33 +231,37 @@ class ImageSubscriber(Node):
             if(self.des_queue is not None):
                 bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
                 matches = bf.match(self.des_queue, des_clean)
+                if(len(matches) > self.min_matches):
+                    for match in matches:
+                        idx1 = match.queryIdx
+                        idx2 = match.trainIdx
+                        matrix_zero_3d.append(self.keyframes[self.queue_index]['points_3d'][idx1])
+                        matrix_second_3d.append(points_np[idx2])
+                    
+                    matrix_zero = np.delete(matrix_zero_3d, 1, axis=1) # remove y coordinate
+                    matrix_second = np.delete(matrix_second_3d, 1, axis=1) # remove y coordinate
+                    R, t, theta = self.ransac_refinement(matrix_zero, matrix_second)
+                    print(f"Estimated rotation (theta): {math.degrees(theta):.2f} degrees")
+                    print(f"Estimated translation: {t}")
 
-                for match in matches:
-                    idx1 = match.queryIdx
-                    idx2 = match.trainIdx
-                    matrix_zero_3d.append(self.keyframes[self.queue_index]['points_3d'][idx1])
-                    matrix_second_3d.append(points_np[idx2])
-                
-                matrix_zero = np.delete(matrix_zero_3d, 1, axis=1) # remove y coordinate
-                matrix_second = np.delete(matrix_second_3d, 1, axis=1) # remove y coordinate
-                R, t, theta = self.ransac_refinement(matrix_zero, matrix_second)
-                print(f"Estimated rotation (theta): {math.degrees(theta):.2f} degrees")
-                print(f"Estimated translation: {t}")
-
-                tf = TransformStamped()
-                tf.header.stamp = self.get_clock().now().to_msg()
-                tf.header.frame_id = 'odom'
-                tf.child_frame_id = 'kinect_depth'
-                tf.transform.translation.x = t[0]
-                tf.transform.translation.y = 0
-                tf.transform.translation.z = t[1]
-                tf.transform.rotation = euler_to_quaternion(0, theta, 0)
-
-                # kinect_depth [x, 0, z]
-                # rotation = euler_to_quaternion(0, theta, 0)
+                    self.sum_t += t
+                    self.sum_deg += math.degrees(theta)
+                    print(f"Sum of translations: {self.sum_t}, Sum of rotations: {self.sum_deg:.2f} degrees")
 
 
+                    tf = TransformStamped()
+                    tf.header.stamp = self.get_clock().now().to_msg()
+                    tf.header.frame_id = 'odom'
+                    tf.child_frame_id = 'kinect_depth'
+                    tf.transform.translation.x = t[0]
+                    tf.transform.translation.y = 0
+                    tf.transform.translation.z = t[1]
+                    tf.transform.rotation = euler_to_quaternion(0, theta, 0)
 
+                    # kinect_depth [x, 0, z]
+                    # rotation = euler_to_quaternion(0, theta, 0)
+                else:
+                    print(f"Not enough matches found for RANSAC {len(matches)}")
             self.des_queue = des_clean
             self.queue_index = self.frame_index
             self.frame_counter = self.to_proceed_frames    
