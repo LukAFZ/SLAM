@@ -9,6 +9,7 @@ from cv_bridge import CvBridge
 import cv2
 import math
 import numpy as np
+import time
 
 class ImageSubscriber(Node):
     def __init__(self):
@@ -42,6 +43,72 @@ class ImageSubscriber(Node):
 
         self.keyframes = []
         self.frame_index = 0
+        self.frame_counter = 10
+        self.to_proceed_frames = 1
+        self.queue_index = 0
+
+    def get_kapsch_2d(self, P, Q):    
+
+        # Calculate the centroids of P and Q
+        P_middle = np.mean(P, axis=0) #p_quer
+        Q_middle = np.mean(Q, axis=0) #q_quer
+
+        # Center the points by subtracting the centroids  
+        P_centered = P - P_middle #p_strich
+        Q_centered = Q - Q_middle #p_strich
+
+
+        # Calculate the rotation angle (theta) using the Kabsch algorithm
+        theta = math.atan2(sum(Q_centered[:,0]*P_centered[:,1] - Q_centered[:,1]*P_centered[:,0]), sum(Q_centered[:,0]*P_centered[:,0] + Q_centered[:,1]*P_centered[:,1]))
+        #print(f"Rotation angle (theta): {math.degrees(theta):.2f} degrees")
+
+        # Calculate the rotation matrix using the rotation angle
+        Rotation_matrix = np.array([[math.cos(theta), -math.sin(theta)],
+                                    [math.sin(theta), math.cos(theta)]])
+        # Calculate the translation vector using the centroids and the rotation matrix
+        Translation = P_middle - Rotation_matrix @ Q_middle
+        #print(f"Translation vector: {Translation}")
+        return Rotation_matrix, Translation, theta
+
+
+
+    def ransac_refinement(self, P, Q):
+        
+        max_iterations= 200
+        threshold= 50
+        best_rotation = None
+        best_translation = None
+        best_theta = 0
+        best_inlier_count = 0
+        
+
+        for _ in range(max_iterations):
+            # Randomly select a subset of points
+
+            indices = np.random.choice(len(P), size=3, replace=False)
+            P_subset = P[indices]
+            Q_subset = Q[indices]
+
+            # Estimate the transformation using the selected subset
+            R_estimated, t_estimated, theta_estimated = self.get_kapsch_2d(P_subset, Q_subset)
+
+ 
+             # Transform Q and calculate per-point errors
+            Q_transformed = (R_estimated @ Q.T).T + t_estimated
+            errors = np.linalg.norm(P - Q_transformed, axis=1)
+            inlier_count = np.sum(errors < threshold)
+
+            if inlier_count > best_inlier_count:
+                best_inlier_count = inlier_count
+                best_rotation = R_estimated
+                best_translation = t_estimated
+                best_theta = theta_estimated
+
+
+
+
+        return best_rotation, best_translation, best_theta
+
 
 
     def listener_callback_rgb(self,msg):
@@ -50,6 +117,8 @@ class ImageSubscriber(Node):
         # find the keypoints with ORB
         kp = self.orb.detect(frame,None)
         
+        matrix_zero_3d = []
+        matrix_second_3d = []
         
         
         kp_clean = []
@@ -60,9 +129,9 @@ class ImageSubscriber(Node):
                 # get x,y coordinates of keypoint
                 x, y = int(point.pt[0]), int(point.pt[1])
                 # get depth value at keypoint location and convert to meters
-                depth = self.depth_frame[y, x]/1000.0
-                if(depth > 0.4 and depth < 4): # filter out invalid depth values
-                    text = f"{depth:.2f} m"
+                depth = self.depth_frame[y, x]
+                if(depth > 400 and depth < 4000): # filter out invalid depth values
+                    text = f"{depth:.1f} mm"
                     cv2.putText(frame, text, (x + 5, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1)
                     kp_clean.append(point)
         else:
@@ -77,15 +146,10 @@ class ImageSubscriber(Node):
         #   ...
         
         for point, des in zip(kp_clean, des_clean):
-            depth = self.depth_frame[int(point.pt[1]), int(point.pt[0])] / 1000.0
+            depth = self.depth_frame[int(point.pt[1]), int(point.pt[0])]
             u = self.cu - point.pt[0]
             v = point.pt[1]-self.cv
 
-            #phi1 = math.atan2(u, self.f)
-            #phi2 = math.atan2(v, self.f)
-            #x = depth * math.tan(phi1)
-            #y = depth * math.tan(phi2)
-            #z = depth
 
             # 3D coordinates calculation
             x = (point.pt[0] - self.cu) * depth / self.f
@@ -124,64 +188,45 @@ class ImageSubscriber(Node):
         self.current_descriptors = []
         
 
-        if(self.des_queue is not None):
-            # create BFMatcher object
-            bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-            # Match descriptors.
-            matches = bf.match(self.des_queue, des_clean)
-            # Sort them in the order of their distance.
-            matches = sorted(matches, key = lambda x:x.distance)
-            # Draw first 10 matches.
-            #img3 = cv2.drawMatches(frame, kp_clean, frame, kp_clean, matches[:10], None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
-            #cv2.imshow("Matches",img3)
-            #cv2.waitKey(1)
-
-
-        if(self.frame_index == 20):
-            bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-            matches = bf.match(self.keyframes[0]['des'], des_clean)
-            matches = sorted(matches, key = lambda x:x.distance)
-            print(f"Number of matches: {len(matches)}")
-            matrix_zero_3d = []
-            matrix_second_3d = []
-
-            for match in matches:
-                idx1 = match.queryIdx
-                idx2 = match.trainIdx
-                matrix_zero_3d.append(self.keyframes[0]['points_3d'][idx1])
-                matrix_second_3d.append(points_np[idx2])
-                
-
-            #Kabsch Algorithmus
-
-            
-            matrix_zero = np.delete(matrix_zero_3d, 1, axis=1) # remove y coordinate
-            matrix_second = np.delete(matrix_second_3d, 1, axis=1) # remove y coordinate
-
-            P_middle = np.mean(matrix_zero, axis=0) #p_quer
-            Q_middle = np.mean(matrix_second, axis=0) #q_quer
-            
-            P_centered = matrix_zero - P_middle #p_strich
-            Q_centered = matrix_second - Q_middle #p_strich
-
-
-
-            teta = math.atan2(sum(Q_centered[:,0]*P_centered[:,1] - Q_centered[:,1]*P_centered[:,0]), sum(Q_centered[:,0]*P_centered[:,0] + Q_centered[:,1]*P_centered[:,1]))
-            print(f"Rotation angle (teta): {math.degrees(teta):.2f} degrees")
-
-            Rotation_matrix = np.array([[math.cos(teta), -math.sin(teta)],
-                                        [math.sin(teta), math.cos(teta)]])
-            Translation = P_middle - Rotation_matrix @ Q_middle
-            print(f"Translation vector: {Translation}")
-
-
+        # if(self.des_queue is not None):
+        #     # create BFMatcher object
+        #     bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+        #     # Match descriptors.
+        #     matches = bf.match(self.des_queue, des_clean)
+        #     # Sort them in the order of their distance.
+        #     matches = sorted(matches, key = lambda x:x.distance)
+        #     # Draw first 10 matches.
+        #     #img3 = cv2.drawMatches(frame, kp_clean, frame, kp_clean, matches[:10], None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
+        #     #cv2.imshow("Matches",img3)
+        #     #cv2.waitKey(1)
 
         
 
-        self.frame_index += 1
+        if(self.frame_counter == 0):
+            if(self.des_queue is not None):
+                bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+                matches = bf.match(self.des_queue, des_clean)
+                for match in matches:
+                    idx1 = match.queryIdx
+                    idx2 = match.trainIdx
+                    matrix_zero_3d.append(self.keyframes[self.queue_index]['points_3d'][idx1])
+                    matrix_second_3d.append(points_np[idx2])
+                
+                matrix_zero = np.delete(matrix_zero_3d, 1, axis=1) # remove y coordinate
+                matrix_second = np.delete(matrix_second_3d, 1, axis=1) # remove y coordinate
+                R, t, theta = self.ransac_refinement(matrix_zero, matrix_second)
+                print(f"Estimated rotation (theta): {math.degrees(theta):.2f} degrees")
+                print(f"Estimated translation: {t}")
 
-        # store current descriptors for next frame matching
-        self.des_queue = des_clean
+            self.des_queue = des_clean
+            self.queue_index = self.frame_index
+            self.frame_counter = self.to_proceed_frames    
+
+
+        self.frame_index += 1
+        self.frame_counter -= 1
+        
+        
         
 
     def listener_callback_depth(self, msg):
