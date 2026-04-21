@@ -3,6 +3,7 @@ import rclpy
 from rclpy.node import Node
 from sensor_msgs.msg import Image
 from sensor_msgs.msg import PointCloud2
+from geometry_msgs.msg import TransformStamped
 import std_msgs.msg
 import sensor_msgs_py.point_cloud2 as pcl2
 from cv_bridge import CvBridge
@@ -81,9 +82,16 @@ class ImageSubscriber(Node):
         best_theta = 0
         best_inlier_count = 0
         
+       
+        
+        if(len(P) < 5):
+            # Not enough points for RANSAC, return the transformation from all points
+            return best_rotation, best_translation, best_theta
 
         for _ in range(max_iterations):
             # Randomly select a subset of points
+            P_second = []
+            Q_second = []
 
             indices = np.random.choice(len(P), size=3, replace=False)
             P_subset = P[indices]
@@ -93,21 +101,32 @@ class ImageSubscriber(Node):
             R_estimated, t_estimated, theta_estimated = self.get_kapsch_2d(P_subset, Q_subset)
 
  
-             # Transform Q and calculate per-point errors
+            # Transform Q and calculate per-point errors
             Q_transformed = (R_estimated @ Q.T).T + t_estimated
             errors = np.linalg.norm(P - Q_transformed, axis=1)
+            
             inlier_count = np.sum(errors < threshold)
 
+
+
             if inlier_count > best_inlier_count:
+                for e, p, q in zip(errors, P, Q):
+                    if e < threshold:
+                        P_second.append(p)
+                        Q_second.append(q)
+
+                best_rotation, best_translation, best_theta = self.get_kapsch_2d(np.array(P_second), np.array(Q_second))
+
                 best_inlier_count = inlier_count
-                best_rotation = R_estimated
-                best_translation = t_estimated
-                best_theta = theta_estimated
+                
 
-
+        #print("Inliner percentage: {:.2f}%".format(best_inlier_count / len(P) * 100))
 
 
         return best_rotation, best_translation, best_theta
+
+# odom berechnen
+# odom publisher und in RVIZ2 anschauen
 
 
 
@@ -144,7 +163,9 @@ class ImageSubscriber(Node):
 
         # for point, des in zip(kp_clean, des_clean):
         #   ...
-        
+        if(kp_clean is None or des_clean is None):
+            return # skip processing if no valid keypoints/descriptors are found
+
         for point, des in zip(kp_clean, des_clean):
             depth = self.depth_frame[int(point.pt[1]), int(point.pt[0])]
             u = self.cu - point.pt[0]
@@ -177,7 +198,7 @@ class ImageSubscriber(Node):
         # publish 3D points as PointCloud2 message
         header = std_msgs.msg.Header()
         header.stamp = self.get_clock().now().to_msg()
-        header.frame_id = 'feature_points'
+        header.frame_id = 'kinect_depth'
         pointcloud_msg = pcl2.create_cloud_xyz32(header, self.current_points_3d) # only publish x,y,z coordinates, ignore descriptors
         self.pcl_publisher.publish(pointcloud_msg)
         # TF tree missing
@@ -206,6 +227,7 @@ class ImageSubscriber(Node):
             if(self.des_queue is not None):
                 bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
                 matches = bf.match(self.des_queue, des_clean)
+
                 for match in matches:
                     idx1 = match.queryIdx
                     idx2 = match.trainIdx
@@ -217,6 +239,20 @@ class ImageSubscriber(Node):
                 R, t, theta = self.ransac_refinement(matrix_zero, matrix_second)
                 print(f"Estimated rotation (theta): {math.degrees(theta):.2f} degrees")
                 print(f"Estimated translation: {t}")
+
+                tf = TransformStamped()
+                tf.header.stamp = self.get_clock().now().to_msg()
+                tf.header.frame_id = 'odom'
+                tf.child_frame_id = 'kinect_depth'
+                tf.transform.translation.x = t[0]
+                tf.transform.translation.y = 0
+                tf.transform.translation.z = t[1]
+                tf.transform.rotation = euler_to_quaternion(0, theta, 0)
+
+                # kinect_depth [x, 0, z]
+                # rotation = euler_to_quaternion(0, theta, 0)
+
+
 
             self.des_queue = des_clean
             self.queue_index = self.frame_index
