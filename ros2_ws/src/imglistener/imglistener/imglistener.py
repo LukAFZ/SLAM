@@ -43,7 +43,7 @@ class ImageSubscriber(Node):
         # Focal length 
         self.f = 526.61
         self.frame_counter = 10
-        self.min_matches = 50
+        self.min_matches = 30
 
         # Store 3D points
         self.current_points_3d = []
@@ -87,7 +87,7 @@ class ImageSubscriber(Node):
     def ransac_refinement(self, P, Q):
         
         max_iterations= 200
-        threshold= 40
+        threshold= 50
         best_rotation = None
         best_translation = None
         best_theta = 0
@@ -282,8 +282,8 @@ class ImageSubscriber(Node):
                     t = np.array(t) / 1000 # convert from mm to meters
                     t_rot = np.array([[0, 1], [-1, 0]]) @ t
 
-                    self.curr_pos_x += t_rot[0]*math.cos(theta)
-                    self.curr_pos_y += t_rot[1]*math.sin(theta)
+                    self.curr_pos_x += t_rot[0]*math.cos(self.curr_theta) - t_rot[1]*math.sin(self.curr_theta)
+                    self.curr_pos_y += t_rot[0]*math.sin(self.curr_theta) + t_rot[1]*math.cos(self.curr_theta)
                     self.curr_theta += theta
 
                     self.publish_tf(self.curr_pos_x, self.curr_pos_y, self.curr_theta)
