@@ -276,11 +276,13 @@ class ImageSubscriber(Node):
                     matrix_zero = np.delete(matrix_zero_3d, 1, axis=1) # remove y coordinate
                     matrix_second = np.delete(matrix_second_3d, 1, axis=1) # remove y coordinate
                     R, t, theta = self.ransac_refinement(matrix_zero, matrix_second)
-                    print(f"Estimated rotation (theta): {math.degrees(theta):.2f} degrees")
-                    print(f"Estimated translation: {t}")
+
 
                     t = np.array(t) / 1000 # convert from mm to meters
                     t_rot = np.array([[0, 1], [-1, 0]]) @ t
+
+                    print(f"Estimated rotation (theta): {math.degrees(theta):.2f} degrees")
+                    print(f"Estimated translation: {t_rot[0]:.2f}, {t_rot[1]:.2f}")
 
                     self.curr_pos_x += t_rot[0]*math.cos(self.curr_theta) - t_rot[1]*math.sin(self.curr_theta)
                     self.curr_pos_y += t_rot[0]*math.sin(self.curr_theta) + t_rot[1]*math.cos(self.curr_theta)
