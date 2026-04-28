@@ -4,6 +4,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import Image
 from sensor_msgs.msg import PointCloud2
 from geometry_msgs.msg import TransformStamped
+from tf2_ros import TransformBroadcaster
 import std_msgs.msg
 import sensor_msgs_py.point_cloud2 as pcl2
 from cv_bridge import CvBridge
@@ -11,6 +12,7 @@ import cv2
 import math
 import numpy as np
 import time
+from scipy.spatial.transform import Rotation
 
 class ImageSubscriber(Node):
     def __init__(self):
@@ -24,8 +26,12 @@ class ImageSubscriber(Node):
             '/serf01/nav_rgbd_1/depth/image_raw', self.listener_callback_depth, 10)
         # Publisher for 3D pointcloud
         self.pcl_publisher = self.create_publisher(PointCloud2, '/serf01/nav_rgbd_1/pointcloud', 10)
+
+        self.tf_broadcaster = TransformBroadcaster(self)
         
-        
+        self.odom_frame = 'odom'
+        self.base_frame = 'base_link'
+
         self.des_queue = None
         self.depth_frame = None
         # Initiate ORB detector
@@ -37,7 +43,7 @@ class ImageSubscriber(Node):
         # Focal length 
         self.f = 526.61
         self.frame_counter = 10
-        self.min_matches = 50
+        self.min_matches = 30
 
         # Store 3D points
         self.current_points_3d = []
@@ -48,8 +54,10 @@ class ImageSubscriber(Node):
         self.frame_index = 0
         self.to_proceed_frames = 1
         self.queue_index = 0
-        self.sum_t = 0
-        self.sum_deg = 0
+        
+        self.curr_pos_x = 0
+        self.curr_pos_y = 0
+        self.curr_theta = 0
 
     def get_kapsch_2d(self, P, Q):    
 
@@ -130,7 +138,34 @@ class ImageSubscriber(Node):
 
 # odom berechnen
 # odom publisher und in RVIZ2 anschauen
+    def publish_tf(self, x, y, theta, from_frame=None, to_frame=None):
+        if from_frame is None:
+            from_frame = self.odom_frame
+        if to_frame is None:
+            to_frame = self.base_frame
 
+        t = TransformStamped()
+
+        t.header.stamp = self.get_clock().now().to_msg()
+        t.header.frame_id = from_frame
+        t.child_frame_id = to_frame
+
+        t.transform.translation.x = x
+        t.transform.translation.y = y
+        t.transform.translation.z = 0.0
+
+        euler = Rotation.from_euler('z', float(theta))
+        quat = euler.as_quat(canonical=True)
+
+        t.transform.rotation.x = quat[0]
+        t.transform.rotation.y = quat[1]
+        t.transform.rotation.z = quat[2]
+        t.transform.rotation.w = quat[3]
+
+        self.tf_broadcaster.sendTransform(t)
+                    
+
+        
 
 
     def listener_callback_rgb(self,msg):
@@ -241,28 +276,23 @@ class ImageSubscriber(Node):
                     matrix_zero = np.delete(matrix_zero_3d, 1, axis=1) # remove y coordinate
                     matrix_second = np.delete(matrix_second_3d, 1, axis=1) # remove y coordinate
                     R, t, theta = self.ransac_refinement(matrix_zero, matrix_second)
-
-                    #Rotiere die Koordinaten in das Kincect Koordinatensystem
-                    t = np.array([[0, 1], [-1, 0]]) @ t
-
                     print(f"Estimated rotation (theta): {math.degrees(theta):.2f} degrees")
-                    print(f"Estimated translation: {t[0], t[1]}")
+                    print(f"Estimated translation: {t}")
 
-                    self.sum_t += t
-                    self.sum_deg += math.degrees(theta)
-                    print(f"Sum of translations: {self.sum_t[0], self.sum_t[1]}, Sum of rotations: {self.sum_deg:.2f} degrees")
+                    t = np.array(t) / 1000 # convert from mm to meters
+                    t_rot = np.array([[0, 1], [-1, 0]]) @ t
 
-                    tf = TransformStamped()
-                    tf.header.stamp = self.get_clock().now().to_msg()
-                    tf.header.frame_id = 'odom'
-                    tf.child_frame_id = 'kinect_depth'
-                    tf.transform.translation.x = t[0]
-                    tf.transform.translation.y = 0
-                    tf.transform.translation.z = t[1]
-                    #tf.transform.rotation = euler_to_quaternion(0, theta, 0)
+                    self.curr_pos_x += t_rot[0]*math.cos(self.curr_theta) - t_rot[1]*math.sin(self.curr_theta)
+                    self.curr_pos_y += t_rot[0]*math.sin(self.curr_theta) + t_rot[1]*math.cos(self.curr_theta)
+                    self.curr_theta += theta
 
-                    # kinect_depth [x, 0, z]
-                    # rotation = euler_to_quaternion(0, theta, 0)
+                    self.publish_tf(self.curr_pos_x, self.curr_pos_y, self.curr_theta)
+
+                    # Erster Winkel aus IMU als Startwinkel
+                    
+
+
+                    
                 else:
                     print(f"Not enough matches found for RANSAC {len(matches)}")
             self.des_queue = des_clean
