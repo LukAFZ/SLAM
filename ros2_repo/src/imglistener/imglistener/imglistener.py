@@ -241,13 +241,16 @@ class ImageSubscriber(Node):
                     matrix_zero = np.delete(matrix_zero_3d, 1, axis=1) # remove y coordinate
                     matrix_second = np.delete(matrix_second_3d, 1, axis=1) # remove y coordinate
                     R, t, theta = self.ransac_refinement(matrix_zero, matrix_second)
+
+                    #Rotiere die Koordinaten in das Kincect Koordinatensystem
+                    t = np.array([[0, 1], [-1, 0]]) @ t
+
                     print(f"Estimated rotation (theta): {math.degrees(theta):.2f} degrees")
-                    print(f"Estimated translation: {t}")
+                    print(f"Estimated translation: {t[0], t[1]}")
 
                     self.sum_t += t
                     self.sum_deg += math.degrees(theta)
-                    print(f"Sum of translations: {self.sum_t}, Sum of rotations: {self.sum_deg:.2f} degrees")
-
+                    print(f"Sum of translations: {self.sum_t[0], self.sum_t[1]}, Sum of rotations: {self.sum_deg:.2f} degrees")
 
                     tf = TransformStamped()
                     tf.header.stamp = self.get_clock().now().to_msg()
@@ -256,7 +259,7 @@ class ImageSubscriber(Node):
                     tf.transform.translation.x = t[0]
                     tf.transform.translation.y = 0
                     tf.transform.translation.z = t[1]
-                    tf.transform.rotation = euler_to_quaternion(0, theta, 0)
+                    #tf.transform.rotation = euler_to_quaternion(0, theta, 0)
 
                     # kinect_depth [x, 0, z]
                     # rotation = euler_to_quaternion(0, theta, 0)
