@@ -5,6 +5,7 @@ from sensor_msgs.msg import Image
 from sensor_msgs.msg import PointCloud2
 from geometry_msgs.msg import TransformStamped
 from tf2_ros import TransformBroadcaster
+from nav_msgs.msg import Odometry
 import std_msgs.msg
 import sensor_msgs_py.point_cloud2 as pcl2
 from cv_bridge import CvBridge
@@ -13,6 +14,7 @@ import math
 import numpy as np
 import time
 from scipy.spatial.transform import Rotation
+from nav_msgs.msg import Path
 
 class ImageSubscriber(Node):
     def __init__(self):
@@ -31,6 +33,9 @@ class ImageSubscriber(Node):
         
         self.odom_frame = 'odom'
         self.base_frame = 'base_link'
+
+        self.odom_publisher = self.create_publisher(Odometry, '/serf01/odometry/project_slam', 10)
+        self.dummy_cov = [0.1] * 36 # Dummy covariance values for pose and twist
 
         self.des_queue = None
         self.depth_frame = None
@@ -136,8 +141,7 @@ class ImageSubscriber(Node):
 
         return best_rotation, best_translation, best_theta
 
-# odom berechnen
-# odom publisher und in RVIZ2 anschauen
+
     def publish_tf(self, x, y, theta, from_frame=None, to_frame=None):
         if from_frame is None:
             from_frame = self.odom_frame
@@ -163,8 +167,42 @@ class ImageSubscriber(Node):
         t.transform.rotation.w = quat[3]
 
         self.tf_broadcaster.sendTransform(t)
-                    
 
+
+    def publish_odometry_msg(self, x, y, theta):
+        
+        msg = Odometry()
+        
+        # Header
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = self.odom_frame
+        
+        # Child Frame ID
+        msg.child_frame_id = self.base_frame
+
+        # Pose
+        msg.pose.pose.position.x = x
+        msg.pose.pose.position.y = y
+        msg.pose.pose.position.z = 0.0
+
+        # Euler-Winkel zu Quaternion konvertieren
+        r = Rotation.from_euler('z', float(theta))
+        quat = r.as_quat(canonical=True)
+        msg.pose.pose.orientation.x = quat[0]
+        msg.pose.pose.orientation.y = quat[1]
+        msg.pose.pose.orientation.z = quat[2]
+        msg.pose.pose.orientation.w = quat[3]
+        
+        # Pose Covariance
+        msg.pose.covariance = self.dummy_cov
+
+        # Twist (Geschwindigkeit - hier Dummy 0.0)
+        msg.twist.twist.linear.x = 0.0
+        msg.twist.twist.angular.z = 0.0
+        msg.twist.covariance = self.dummy_cov
+
+        # Veröffentlichen
+        self.odom_publisher.publish(msg)    
         
 
 
@@ -289,6 +327,7 @@ class ImageSubscriber(Node):
                     self.publish_tf(self.curr_pos_x, self.curr_pos_y, self.curr_theta)
 
                     # Erster Winkel aus IMU als Startwinkel
+                    self.publish_odometry_msg(self.curr_pos_x, self.curr_pos_y, self.curr_theta)
                     
 
 
