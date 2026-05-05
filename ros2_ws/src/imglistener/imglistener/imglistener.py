@@ -41,6 +41,7 @@ class ImageSubscriber(Node):
         self.depth_frame = None
         # Initiate ORB detector
         self.orb = cv2.ORB_create()
+        self.bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
 
         # Image center coordinates
         self.cu = 318.525
@@ -48,21 +49,25 @@ class ImageSubscriber(Node):
         # Focal length 
         self.f = 526.61
         self.frame_counter = 10
-        self.min_matches = 30
+        self.min_matches = 10
 
         # Store 3D points
         self.current_points_3d = []
         self.current_descriptors = []
         self.point_history = []
 
+        # TASK 4: Map Management storage (Landmarks in 3D)
+        self.map_landmarks = [] # List of {'pt_glob': [x,y,z], 'des': descriptor, 'seen_count': int, 'last_seen': int}
         self.keyframes = []
         self.frame_index = 0
         self.to_proceed_frames = 1
         self.queue_index = 0
         
-        self.curr_pos_x = 0
-        self.curr_pos_y = 0
-        self.curr_theta = 0
+        self.curr_pos_x = 0.0
+        self.curr_pos_y = 0.0
+        self.curr_theta = 0.0
+
+        
 
     def get_kapsch_2d(self, P, Q):    
 
@@ -87,8 +92,6 @@ class ImageSubscriber(Node):
         #print(f"Translation vector: {Translation}")
         return Rotation_matrix, Translation, theta
 
-
-
     def ransac_refinement(self, P, Q):
         
         max_iterations= 200
@@ -97,8 +100,6 @@ class ImageSubscriber(Node):
         best_translation = None
         best_theta = 0
         best_inlier_count = 0
-        
-       
         
         if(len(P) < 5):
             # Not enough points for RANSAC, return the transformation from all points
@@ -116,14 +117,11 @@ class ImageSubscriber(Node):
             # Estimate the transformation using the selected subset
             R_estimated, t_estimated, theta_estimated = self.get_kapsch_2d(P_subset, Q_subset)
 
- 
             # Transform Q and calculate per-point errors
             Q_transformed = (R_estimated @ Q.T).T + t_estimated
             errors = np.linalg.norm(P - Q_transformed, axis=1)
             
             inlier_count = np.sum(errors < threshold)
-
-
 
             if inlier_count > best_inlier_count:
                 for e, p, q in zip(errors, P, Q):
@@ -135,12 +133,7 @@ class ImageSubscriber(Node):
 
                 best_inlier_count = inlier_count
                 
-
-        #print("Inliner percentage: {:.2f}%".format(best_inlier_count / len(P) * 100))
-
-
         return best_rotation, best_translation, best_theta
-
 
     def publish_tf(self, x, y, theta, from_frame=None, to_frame=None):
         if from_frame is None:
@@ -167,7 +160,6 @@ class ImageSubscriber(Node):
         t.transform.rotation.w = quat[3]
 
         self.tf_broadcaster.sendTransform(t)
-
 
     def publish_odometry_msg(self, x, y, theta):
         
@@ -204,17 +196,11 @@ class ImageSubscriber(Node):
         # Veröffentlichen
         self.odom_publisher.publish(msg)    
         
-
-
     def listener_callback_rgb(self,msg):
         frame=self.bridge.imgmsg_to_cv2(msg,'bgr8')
         
         # find the keypoints with ORB
         kp = self.orb.detect(frame,None)
-        
-        matrix_zero_3d = []
-        matrix_second_3d = []
-        
         
         kp_clean = []
         # if depth frame is available, overlay depth info on keypoints
@@ -225,131 +211,137 @@ class ImageSubscriber(Node):
                 x, y = int(point.pt[0]), int(point.pt[1])
                 # get depth value at keypoint location and convert to meters
                 depth = self.depth_frame[y, x]
-                if(depth > 400 and depth < 4500): # filter out invalid depth values
-                    text = f"{depth:.1f} mm"
-                    cv2.putText(frame, text, (x + 5, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1)
+                if(400 < depth < 4500): # filter out invalid depth values
                     kp_clean.append(point)
         else:
             return # skip processing if depth frame is not available
+        
         # compute the descriptors with ORB
         kp_clean, des_clean = self.orb.compute(frame, kp_clean)
-        # for i in range(len(kp_clean)):
-        #   point = kp_clean[i]
-        #   des = des_clean[i]
-
-        # for point, des in zip(kp_clean, des_clean):
-        #   ...
+        
         if(kp_clean is None or des_clean is None):
             return # skip processing if no valid keypoints/descriptors are found
 
+        # 3D coordinates calculation
+        local_robot_pts_3d = []
         for point, des in zip(kp_clean, des_clean):
-            depth = self.depth_frame[int(point.pt[1]), int(point.pt[0])]
-            u = self.cu - point.pt[0]
-            v = point.pt[1]-self.cv
+            depth = float(self.depth_frame[int(point.pt[1]), int(point.pt[0])])
+            
+            # X, Y, Z in camera frame
+            x_c = (point.pt[0] - self.cu) * depth / self.f
+            y_c = (point.pt[1] - self.cv) * depth / self.f
+            z_c = depth
 
-
-            # 3D coordinates calculation
-            x = (point.pt[0] - self.cu) * depth / self.f
-            y = (point.pt[1] - self.cv) * depth / self.f
-            z = depth
-
-            #control_u = self.f*(x/z)
-            #control_v = self.f*(y/z)
-            #print(f"Real coordinates: ({(u):.2f}, {(v):.2f}), Control commands: ({control_u:.2f}, {control_v:.2f})")
-            self.current_points_3d.append((x, y, z))
+            self.current_points_3d.append((x_c, y_c, z_c))
             self.current_descriptors.append(des)
-        points_np = np.array(self.current_points_3d)
-        des_np = np.array(self.current_descriptors)
+            # Roboterkoordinaten (X=vorne, Y=links, Z=hoch)
+            local_robot_pts_3d.append([z_c, -x_c, -y_c])
 
-        # store keyframe data
-        self.keyframes.append({
-            'points_3d': points_np,
-            'des': des_np
-        })
+        # Initial map creation
+        if not self.map_landmarks:
+            for i in range(len(local_robot_pts_3d)):
+                self.map_landmarks.append({
+                    'pt_glob': local_robot_pts_3d[i], 
+                    'des': des_clean[i], 
+                    'seen_count': 1, 
+                    'last_seen': self.frame_index
+                })
+
+        # Viewing Cone / Frustum Culling
+        visible_des = []
+        visible_pts_glob_2d = []
+        visible_map_indices = []
+        
+        for idx, lm in enumerate(self.map_landmarks):
+            dx = lm['pt_glob'][0] - (self.curr_pos_x)
+            dy = lm['pt_glob'][1] - (self.curr_pos_y)
+            # Transform to local robot coordinates
+            lx = dx * math.cos(-self.curr_theta) - dy * math.sin(-self.curr_theta)
+            ly = dx * math.sin(-self.curr_theta) + dy * math.cos(-self.curr_theta)
+            lz = lm['pt_glob'][2]
+            
+            if lx > 0: # In front of camera
+                u_p = (-ly * self.f) / lx + self.cu
+                v_p = (-lz * self.f) / lx + self.cv
+                if 0 <= u_p <= 640 and 0 <= v_p <= 480:
+                    visible_des.append(lm['des'])
+                    visible_pts_glob_2d.append(lm['pt_glob'][:2])
+                    visible_map_indices.append(idx)
+
+        if(self.frame_counter == 0):
+            if(len(visible_des) > 0):
+                
+                matches = self.bf.match(np.array(visible_des), des_clean)
+                
+                if(len(matches) > self.min_matches):
+                    P_glob = []
+                    Q_curr = []
+                    matched_curr_indices = set()
+                    
+                    for match in matches:
+                        map_idx = visible_map_indices[match.queryIdx]
+                        P_glob.append(visible_pts_glob_2d[match.queryIdx])
+                        Q_curr.append(local_robot_pts_3d[match.trainIdx][:2])
+                        matched_curr_indices.add(match.trainIdx)
+                        
+                        # Task 4.1 & 4.2 Update seen_count
+                        self.map_landmarks[map_idx]['seen_count'] += 1
+                        self.map_landmarks[map_idx]['last_seen'] = self.frame_index
+
+                    # Estimate absolute pose from Map (P) and Current (Q)
+                    R, t, theta = self.ransac_refinement(np.array(P_glob), np.array(Q_curr))
+                    
+                    if R is not None:
+                        self.curr_pos_x = t[0]
+                        self.curr_pos_y = t[1]
+                        self.curr_theta = theta
+
+                        # Publish TF and Odometry (Task 2 & 3)
+                        self.publish_tf(self.curr_pos_x / 1000.0, self.curr_pos_y / 1000.0, self.curr_theta)
+                        self.publish_odometry_msg(self.curr_pos_x / 1000.0, self.curr_pos_y / 1000.0, self.curr_theta)
+
+                        # Add new landmarks
+                        for i in range(len(local_robot_pts_3d)):
+                            if i not in matched_curr_indices:
+                                pt = local_robot_pts_3d[i]
+                                gx = (self.curr_pos_x) + pt[0]*math.cos(theta) - pt[1]*math.sin(theta)
+                                gy = (self.curr_pos_y) + pt[0]*math.sin(theta) + pt[1]*math.cos(theta)
+                                self.map_landmarks.append({
+                                    'pt_glob': [gx, gy, pt[2]], 
+                                    'des': des_clean[i], 
+                                    'seen_count': 1, 
+                                    'last_seen': self.frame_index
+                                })
+                        
+                        # Remove landmarks (Quality metric = seen_count)
+                        self.map_landmarks = [lm for lm in self.map_landmarks if lm['seen_count'] > 2 or (self.frame_index - lm['last_seen']) < 15]
+                    
+                else:
+                    print(f"Not enough matches found for RANSAC {len(matches)}")
+            
+            self.frame_counter = self.to_proceed_frames    
 
         # draw keypoints in green
         img2 = cv2.drawKeypoints(frame, kp_clean, None, color=(0,255,0), flags=0)
         cv2.imshow("Feature + Depth",img2)
         cv2.waitKey(1)
-        # publish 3D points as PointCloud2 message
+
+        # --- Publish Map as PointCloud2 (Visualizing Task 4) ---
         header = std_msgs.msg.Header()
         header.stamp = self.get_clock().now().to_msg()
-        header.frame_id = 'kinect_depth'
-        points_in_meters = [(p[0]/1000, p[1]/1000, p[2]/1000) for p in self.current_points_3d] # convert from mm to meters
-        pointcloud_msg = pcl2.create_cloud_xyz32(header, points_in_meters) # only publish x,y,z coordinates, ignore descriptors
-        self.pcl_publisher.publish(pointcloud_msg)
-        # TF tree missing
-        # ros2 run tf2_ros static_transform_publisher 0 0 0 0 0 0 base_link feature_points
+        header.frame_id = self.odom_frame
+        map_points = [[lm['pt_glob'][0]/1000.0, lm['pt_glob'][1]/1000.0, lm['pt_glob'][2]/1000.0] for lm in self.map_landmarks]
+        if map_points:
+            self.pcl_publisher.publish(pcl2.create_cloud_xyz32(header, map_points))
 
         # empty the 3D points list for the next frame
         self.current_points_3d = []
         self.current_descriptors = []
-        
-
-        # if(self.des_queue is not None):
-        #     # create BFMatcher object
-        #     bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-        #     # Match descriptors.
-        #     matches = bf.match(self.des_queue, des_clean)
-        #     # Sort them in the order of their distance.
-        #     matches = sorted(matches, key = lambda x:x.distance)
-        #     # Draw first 10 matches.
-        #     #img3 = cv2.drawMatches(frame, kp_clean, frame, kp_clean, matches[:10], None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
-        #     #cv2.imshow("Matches",img3)
-        #     #cv2.waitKey(1)
-
-        
-
-        if(self.frame_counter == 0):
-            if(self.des_queue is not None):
-                bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-                matches = bf.match(self.des_queue, des_clean)
-                if(len(matches) > self.min_matches):
-                    for match in matches:
-                        idx1 = match.queryIdx
-                        idx2 = match.trainIdx
-                        matrix_zero_3d.append(self.keyframes[self.queue_index]['points_3d'][idx1])
-                        matrix_second_3d.append(points_np[idx2])
-                    
-                    matrix_zero = np.delete(matrix_zero_3d, 1, axis=1) # remove y coordinate
-                    matrix_second = np.delete(matrix_second_3d, 1, axis=1) # remove y coordinate
-                    R, t, theta = self.ransac_refinement(matrix_zero, matrix_second)
-                    print(f"Estimated rotation (theta): {math.degrees(theta):.2f} degrees")
-                    print(f"Estimated translation: {t}")
-
-                    t = np.array(t) / 1000 # convert from mm to meters
-                    t_rot = np.array([[0, 1], [-1, 0]]) @ t
-
-                    self.curr_pos_x += t_rot[0]*math.cos(self.curr_theta) - t_rot[1]*math.sin(self.curr_theta)
-                    self.curr_pos_y += t_rot[0]*math.sin(self.curr_theta) + t_rot[1]*math.cos(self.curr_theta)
-                    self.curr_theta += theta
-
-                    self.publish_tf(self.curr_pos_x, self.curr_pos_y, self.curr_theta)
-
-                    # Erster Winkel aus IMU als Startwinkel
-                    self.publish_odometry_msg(self.curr_pos_x, self.curr_pos_y, self.curr_theta)
-                    
-
-
-                    
-                else:
-                    print(f"Not enough matches found for RANSAC {len(matches)}")
-            self.des_queue = des_clean
-            self.queue_index = self.frame_index
-            self.frame_counter = self.to_proceed_frames    
-
-
         self.frame_index += 1
         self.frame_counter -= 1
-        
-        
-        
 
     def listener_callback_depth(self, msg):
         self.depth_frame=self.bridge.imgmsg_to_cv2(msg,'passthrough')
-        #cv2.imshow("Depth",self.depth_frame)
-        #cv2.waitKey(1)
-    
 
 def main():
     rclpy.init()
