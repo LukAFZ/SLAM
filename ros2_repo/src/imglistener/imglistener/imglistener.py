@@ -29,12 +29,14 @@ class ImageSubscriber(Node):
         self.pcl_publisher = self.create_publisher(PointCloud2, '/serf01/nav_rgbd_1/pointcloud', 10)
         self.tf_broadcaster = TransformBroadcaster(self)
         self.odom_publisher = self.create_publisher(Odometry, '/serf01/odometry/project_slam', 10)
+        #self.landmark_publisher = self.create_publisher(MarkerArray, '/serf01/viz/landmarks', 10)
         
         self.odom_frame = 'odom'
         self.base_frame = 'base_link'
         self.dummy_cov = [0.1] * 36 # Dummy covariance values for pose and twist
 
         self.des_queue = None
+        self.points_queue = None
         self.depth_frame = None
         # Initiate ORB detector
         self.orb = cv2.ORB_create()
@@ -50,9 +52,8 @@ class ImageSubscriber(Node):
         # Store 3D points
         self.current_points_3d = []
         self.current_descriptors = []
-        self.point_history = []
 
-        self.keyframes = []
+        self.point_list = []
         self.frame_index = 0
         self.to_proceed_frames = 1
         self.queue_index = 0
@@ -60,6 +61,8 @@ class ImageSubscriber(Node):
         self.curr_pos_x = 0
         self.curr_pos_y = 0
         self.curr_theta = 0
+
+        self.landmark_id_counter = 0
 
     def get_kapsch_2d(self, P, Q):    
 
@@ -222,12 +225,15 @@ class ImageSubscriber(Node):
                 x, y = int(point.pt[0]), int(point.pt[1])
                 # get depth value at keypoint location and convert to meters
                 depth = self.depth_frame[y, x]
-                if(depth > 400 and depth < 4500): # filter out invalid depth values
+                if(400 < depth < 4500): # filter out invalid depth values
                     text = f"{depth:.1f} mm"
                     cv2.putText(frame, text, (x + 5, y - 5), cv2.FONT_HERSHEY_SIMPLEX, 0.4, (0, 0, 255), 1)
                     kp_clean.append(point)
         else:
             return # skip processing if depth frame is not available
+        
+        #Erstelle Liste mit im Sichtkegel befindlichen Landmarks
+
         # compute the descriptors with ORB
         kp_clean, des_clean = self.orb.compute(frame, kp_clean)
         # for i in range(len(kp_clean)):
@@ -256,13 +262,8 @@ class ImageSubscriber(Node):
             self.current_points_3d.append((x, y, z))
             self.current_descriptors.append(des)
         points_np = np.array(self.current_points_3d)
-        des_np = np.array(self.current_descriptors)
+        des_np = np.array(self.current_descriptors)     
 
-        # store keyframe data
-        self.keyframes.append({
-            'points_3d': points_np,
-            'des': des_np
-        })
 
         # draw keypoints in green
         img2 = cv2.drawKeypoints(frame, kp_clean, None, color=(0,255,0), flags=0)
@@ -281,21 +282,7 @@ class ImageSubscriber(Node):
         # empty the 3D points list for the next frame
         self.current_points_3d = []
         self.current_descriptors = []
-        
-
-        # if(self.des_queue is not None):
-        #     # create BFMatcher object
-        #     bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
-        #     # Match descriptors.
-        #     matches = bf.match(self.des_queue, des_clean)
-        #     # Sort them in the order of their distance.
-        #     matches = sorted(matches, key = lambda x:x.distance)
-        #     # Draw first 10 matches.
-        #     #img3 = cv2.drawMatches(frame, kp_clean, frame, kp_clean, matches[:10], None, flags=cv2.DrawMatchesFlags_NOT_DRAW_SINGLE_POINTS)
-        #     #cv2.imshow("Matches",img3)
-        #     #cv2.waitKey(1)
-
-        
+    
 
         if(self.frame_counter == 0):
             if(self.des_queue is not None):
@@ -305,7 +292,7 @@ class ImageSubscriber(Node):
                     for match in matches:
                         idx1 = match.queryIdx
                         idx2 = match.trainIdx
-                        matrix_zero_3d.append(self.keyframes[self.queue_index]['points_3d'][idx1])
+                        matrix_zero_3d.append(self.points_queue[idx1])
                         matrix_second_3d.append(points_np[idx2])
                     
                     matrix_zero = np.delete(matrix_zero_3d, 1, axis=1) # remove y coordinate
@@ -328,24 +315,35 @@ class ImageSubscriber(Node):
                     # publish odometry message
                     self.publish_odometry_msg(self.curr_pos_x, self.curr_pos_y, self.curr_theta)
 
-                    # Erster Winkel aus IMU als Startwinkel
-                    
+                    #Speichere die Landmarken in der Karte
+                    for pt_local, des in zip(points_np, des_np):
+                        # Umrechnung mm -> m
+                        lx, ly, lz = pt_local[0]/1000, pt_local[1]/1000, pt_local[2]/1000
+                        
+                        # Transformation in Welt-Koordinaten (Rotation + Translation)
+                        # Wir nutzen hier die 2D-Rotation für x und y
+                        world_x = self.curr_pos_x + lx * math.cos(self.curr_theta) - ly * math.sin(self.curr_theta)
+                        world_y = self.curr_pos_y + lx * math.sin(self.curr_theta) + ly * math.cos(self.curr_theta)
+                        world_z = lz # Z bleibt hier vereinfacht gleich
 
-
+                        #Speichere Relative Koordinaten und Welt Koordinaten (Landmarken)
+                        self.point_list.append({
+                            'des': des_np,
+                            'world_coordinates': (world_x, world_y, world_z),
+                            'hits': None
+                        })
                     
                 else:
                     print(f"Not enough matches found for RANSAC {len(matches)}")
+
+            self.points_queue = points_np
             self.des_queue = des_clean
             self.queue_index = self.frame_index
             self.frame_counter = self.to_proceed_frames    
 
-
         self.frame_index += 1
         self.frame_counter -= 1
         
-        
-        
-
     def listener_callback_depth(self, msg):
         self.depth_frame=self.bridge.imgmsg_to_cv2(msg,'passthrough')
         #cv2.imshow("Depth",self.depth_frame)
