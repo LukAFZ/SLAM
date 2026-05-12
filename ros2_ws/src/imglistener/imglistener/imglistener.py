@@ -4,7 +4,7 @@ from rclpy.node import Node
 from sensor_msgs.msg import Image
 from sensor_msgs.msg import PointCloud2
 from geometry_msgs.msg import TransformStamped
-from tf2_ros import TransformBroadcaster
+from tf2_ros import TransformBroadcaster, TransformListener, Buffer
 from nav_msgs.msg import Odometry
 import std_msgs.msg
 import sensor_msgs_py.point_cloud2 as pcl2
@@ -30,9 +30,15 @@ class ImageSubscriber(Node):
         self.pcl_publisher = self.create_publisher(PointCloud2, '/serf01/nav_rgbd_1/pointcloud', 10)
 
         self.tf_broadcaster = TransformBroadcaster(self)
-        
         self.odom_frame = 'odom'
         self.base_frame = 'base_link'
+
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+
+        self.kinect_to_base_matrix = None
+        self.base_to_kinect_matrix = None
+
 
         self.odom_publisher = self.create_publisher(Odometry, '/serf01/odometry/project_slam', 10)
         self.dummy_cov = [0.1] * 36 # Dummy covariance values for pose and twist
@@ -56,7 +62,7 @@ class ImageSubscriber(Node):
         self.current_descriptors = []
         self.point_history = []
 
-        # TASK 4: Map Management storage (Landmarks in 3D)
+        # Map Management storage (Landmarks in 3D)
         self.map_landmarks = [] # List of {'pt_glob': [x,y,z], 'des': descriptor, 'seen_count': int, 'last_seen': int}
         self.keyframes = []
         self.frame_index = 0
@@ -124,8 +130,9 @@ class ImageSubscriber(Node):
             inlier_count = np.sum(errors < threshold)
 
             if inlier_count > best_inlier_count:
+                
                 for e, p, q in zip(errors, P, Q):
-                    if e < threshold:
+                    if e < threshold*1.25:
                         P_second.append(p)
                         Q_second.append(q)
 
@@ -162,7 +169,7 @@ class ImageSubscriber(Node):
         self.tf_broadcaster.sendTransform(t)
 
     def publish_odometry_msg(self, x, y, theta):
-        
+
         msg = Odometry()
         
         # Header
@@ -197,6 +204,40 @@ class ImageSubscriber(Node):
         self.odom_publisher.publish(msg)    
         
     def listener_callback_rgb(self,msg):
+
+        if self.kinect_to_base_matrix is None:
+            try:
+                # get TF from kinect_depth to base_link
+                t = self.tf_buffer.lookup_transform(
+                    self.base_frame, 
+                    'kinect_depth', 
+                    rclpy.time.Time()
+                )
+                
+                # initialize the transformation matrix as identity
+                self.kinect_to_base_matrix = np.eye(4)
+                
+                # store translation
+                self.kinect_to_base_matrix[0, 3] = t.transform.translation.x
+                self.kinect_to_base_matrix[1, 3] = t.transform.translation.y
+                self.kinect_to_base_matrix[2, 3] = t.transform.translation.z
+                
+                # store rotation (convert quaternion to rotation matrix)
+                quat = [t.transform.rotation.x, t.transform.rotation.y, 
+                        t.transform.rotation.z, t.transform.rotation.w]
+                self.kinect_to_base_matrix[:3, :3] = Rotation.from_quat(quat).as_matrix()
+                
+                # calculate inverse for transforming points from kinect frame to base frame
+                self.base_to_kinect_matrix = np.linalg.inv(self.kinect_to_base_matrix)
+                
+               
+                
+            except Exception as e:
+                # If the TF is not available yet, log the error and skip processing this frame
+                self.get_logger().info(f"Warte auf statischen TF... {e}")
+                return
+
+
         frame=self.bridge.imgmsg_to_cv2(msg,'bgr8')
         
         # find the keypoints with ORB
@@ -235,7 +276,11 @@ class ImageSubscriber(Node):
             self.current_points_3d.append((x_c, y_c, z_c))
             self.current_descriptors.append(des)
             # Roboterkoordinaten (X=vorne, Y=links, Z=hoch)
-            local_robot_pts_3d.append([z_c, -x_c, -y_c])
+
+            pt_kinect = np.array([x_c, y_c, z_c, 1.0])
+            pt_base = self.kinect_to_base_matrix @ pt_kinect
+            
+            local_robot_pts_3d.append([pt_base[0], pt_base[1], pt_base[2]])
 
         # Initial map creation
         if not self.map_landmarks:
@@ -253,16 +298,28 @@ class ImageSubscriber(Node):
         visible_map_indices = []
         
         for idx, lm in enumerate(self.map_landmarks):
+            # Calculate relative landmark position to robot
             dx = lm['pt_glob'][0] - (self.curr_pos_x)
             dy = lm['pt_glob'][1] - (self.curr_pos_y)
             # Transform to local robot coordinates
+            # Rotation by -curr_theta to align with robot's current orientation
             lx = dx * math.cos(-self.curr_theta) - dy * math.sin(-self.curr_theta)
             ly = dx * math.sin(-self.curr_theta) + dy * math.cos(-self.curr_theta)
             lz = lm['pt_glob'][2]
             
-            if lx > 0: # In front of camera
-                u_p = (-ly * self.f) / lx + self.cu
-                v_p = (-lz * self.f) / lx + self.cv
+            
+            pt_local_base = np.array([lx, ly, lz, 1.0])
+            pt_cam = self.base_to_kinect_matrix @ pt_local_base
+            
+            c_x = pt_cam[0]
+            c_y = pt_cam[1]
+            c_z = pt_cam[2]
+            
+            if 0 < c_z < 4500: # In front of camera and in valid depth range
+                # Project to 2D image plane with pinhole camera model
+                u_p = (c_x * self.f) / c_z + self.cu
+                v_p = (c_y * self.f) / c_z + self.cv
+                # Check if projected point is within image bounds
                 if 0 <= u_p <= 640 and 0 <= v_p <= 480:
                     visible_des.append(lm['des'])
                     visible_pts_glob_2d.append(lm['pt_glob'][:2])
@@ -270,7 +327,7 @@ class ImageSubscriber(Node):
 
         if(self.frame_counter == 0):
             if(len(visible_des) > 0):
-                
+                # Match visible landmarks with current frame keypoints
                 matches = self.bf.match(np.array(visible_des), des_clean)
                 
                 if(len(matches) > self.min_matches):
@@ -284,7 +341,7 @@ class ImageSubscriber(Node):
                         Q_curr.append(local_robot_pts_3d[match.trainIdx][:2])
                         matched_curr_indices.add(match.trainIdx)
                         
-                        # Task 4.1 & 4.2 Update seen_count
+                        # Update seen_count
                         self.map_landmarks[map_idx]['seen_count'] += 1
                         self.map_landmarks[map_idx]['last_seen'] = self.frame_index
 
@@ -296,11 +353,13 @@ class ImageSubscriber(Node):
                         self.curr_pos_y = t[1]
                         self.curr_theta = theta
 
-                        # Publish TF and Odometry (Task 2 & 3)
+                        # Publish TF and Odometry for visualization and downstream tasks
                         self.publish_tf(self.curr_pos_x / 1000.0, self.curr_pos_y / 1000.0, self.curr_theta)
                         self.publish_odometry_msg(self.curr_pos_x / 1000.0, self.curr_pos_y / 1000.0, self.curr_theta)
 
                         # Add new landmarks
+                        # add not all points but only those that where mached with the current frame, to avoid adding outliers
+                        
                         for i in range(len(local_robot_pts_3d)):
                             if i not in matched_curr_indices:
                                 pt = local_robot_pts_3d[i]
@@ -314,7 +373,7 @@ class ImageSubscriber(Node):
                                 })
                         
                         # Remove landmarks (Quality metric = seen_count)
-                        self.map_landmarks = [lm for lm in self.map_landmarks if lm['seen_count'] > 2 or (self.frame_index - lm['last_seen']) < 15]
+                        self.map_landmarks = [lm for lm in self.map_landmarks if lm['seen_count'] > 4 or (self.frame_index - lm['last_seen']) < 15]
                     
                 else:
                     print(f"Not enough matches found for RANSAC {len(matches)}")
@@ -326,7 +385,7 @@ class ImageSubscriber(Node):
         cv2.imshow("Feature + Depth",img2)
         cv2.waitKey(1)
 
-        # --- Publish Map as PointCloud2 (Visualizing Task 4) ---
+        #Publish Landmarks as PointCloud2
         header = std_msgs.msg.Header()
         header.stamp = self.get_clock().now().to_msg()
         header.frame_id = self.odom_frame
