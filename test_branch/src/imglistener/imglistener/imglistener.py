@@ -12,6 +12,7 @@ import cv2
 import math
 import numpy as np
 from scipy.spatial.transform import Rotation
+import csv
 
 class ImageSubscriber(Node):
     def __init__(self):
@@ -27,6 +28,11 @@ class ImageSubscriber(Node):
         self.odom_publisher = self.create_publisher(Odometry, '/serf01/odometry/project_slam', 10)
         self.tf_broadcaster = TransformBroadcaster(self)
         
+        self.create_subscription(Odometry, '/serf01/odometry/wheel', self.wheel_callback, 10)
+
+        # In __init__:
+        #self.create_subscription(Odometry, '/serf01/odometry/imu', self.imu_callback, 10)
+
         self.odom_frame = 'odom'
         self.base_frame = 'base_link'
         self.dummy_cov = [0.1] * 36
@@ -47,10 +53,11 @@ class ImageSubscriber(Node):
         self.map_landmarks = [] 
         self.frame_index = 0
         self.to_proceed_frames = 1
-        
+
         self.curr_pos_x = 0.0
         self.curr_pos_y = 0.0
         self.curr_theta = 0.0
+    
 
     def get_kapsch_2d(self, P, Q):
         # Berechnung der Centroidenq    
@@ -122,7 +129,7 @@ class ImageSubscriber(Node):
         r = Rotation.from_euler('z', float(theta))
         quat = r.as_quat(canonical=True)
         msg.pose.pose.orientation.x, msg.pose.pose.orientation.y, msg.pose.pose.orientation.z, msg.pose.pose.orientation.w = quat
-        
+
         msg.pose.covariance = self.dummy_cov
         msg.twist.covariance = self.dummy_cov
         self.odom_publisher.publish(msg)
@@ -229,10 +236,15 @@ class ImageSubscriber(Node):
 
                     R, t, theta = self.ransac_refinement(np.array(P_glob), np.array(Q_curr)) #RANSAC, Kapsch Transformation berechnen, um die Pose zu bestimmen und Ausreißer zu entfernen
                     if R is not None:
+
+                        #Kalman Filter
+
                         self.curr_pos_x, self.curr_pos_y, self.curr_theta = t[0], t[1], theta
                         self.publish_tf(self.curr_pos_x / 1000.0, self.curr_pos_y / 1000.0, self.curr_theta) #Publish TF
                         self.publish_odometry_msg(self.curr_pos_x / 1000.0, self.curr_pos_y / 1000.0, self.curr_theta) #Publish Odometry
                         self.update_map(local_robot_pts_3d, des_clean, matched_curr_indices) #Publish Map Update
+
+
                 else:
                     print(f"Not enough matches: {len(matches)}")
             self.frame_counter = self.to_proceed_frames
