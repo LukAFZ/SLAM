@@ -21,6 +21,7 @@ log/
 parts/
 sdist/
 var/
+csv/
 wheels/
 pip-wheel-metadata/
 share/python-wheels/
