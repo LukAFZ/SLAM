@@ -23,6 +23,7 @@ log/
 install/
 wheels/
 test/
+csv/
 pip-wheel-metadata/
 share/python-wheels/
 *.egg-info/
