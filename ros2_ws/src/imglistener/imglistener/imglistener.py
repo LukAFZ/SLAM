@@ -73,8 +73,6 @@ class ImageSubscriber(Node):
         self.curr_pos_y = 0.0
         self.curr_theta = 0.0
 
-        
-
     def get_kapsch_2d(self, P, Q):    
 
         # Calculate the centroids of P and Q
@@ -324,6 +322,11 @@ class ImageSubscriber(Node):
                     visible_des.append(lm['des'])
                     visible_pts_glob_2d.append(lm['pt_glob'][:2])
                     visible_map_indices.append(idx)
+        
+        delta_R = None
+        delta_t = None
+        delta_theta = None
+
 
         if(self.frame_counter == 0):
             if(len(visible_des) > 0):
@@ -331,27 +334,47 @@ class ImageSubscriber(Node):
                 matches = self.bf.match(np.array(visible_des), des_clean)
                 
                 if(len(matches) > self.min_matches):
-                    P_glob = []
-                    Q_curr = []
+                    P_local = []
+                    Q_curr  = []
                     matched_curr_indices = set()
-                    
+
+                    cos_t = math.cos(-self.curr_theta)
+                    sin_t = math.sin(-self.curr_theta)
+
                     for match in matches:
                         map_idx = visible_map_indices[match.queryIdx]
-                        P_glob.append(visible_pts_glob_2d[match.queryIdx])
+                        pt_glob = visible_pts_glob_2d[match.queryIdx]
+
+                        # transform global landmark position to local robot coordinates for the matched landmark
+                        dx = pt_glob[0] - self.curr_pos_x
+                        dy = pt_glob[1] - self.curr_pos_y
+                        lx =  dx * cos_t - dy * sin_t
+                        ly =  dx * sin_t + dy * cos_t
+
+                        P_local.append([lx, ly])
                         Q_curr.append(local_robot_pts_3d[match.trainIdx][:2])
                         matched_curr_indices.add(match.trainIdx)
-                        
-                        # Update seen_count
+
                         self.map_landmarks[map_idx]['seen_count'] += 1
                         self.map_landmarks[map_idx]['last_seen'] = self.frame_index
 
-                    # Estimate absolute pose from Map (P) and Current (Q)
-                    R, t, theta = self.ransac_refinement(np.array(P_glob), np.array(Q_curr))
-                    
-                    if R is not None:
-                        self.curr_pos_x = t[0]
-                        self.curr_pos_y = t[1]
-                        self.curr_theta = theta
+                    # ransac refinement to get robust transformation estimation
+                    delta_R, delta_t, delta_theta = self.ransac_refinement(
+                        np.array(P_local), np.array(Q_curr)
+                    )
+
+                    if delta_R is not None:
+                        # relative transformation in local robot coordinates to odom frame
+                        cos_c = math.cos(self.curr_theta)
+                        sin_c = math.sin(self.curr_theta)
+                        delta_tx_odom =  delta_t[0] * cos_c - delta_t[1] * sin_c
+                        delta_ty_odom =  delta_t[0] * sin_c + delta_t[1] * cos_c
+
+                        # update current pose with the estimated transformation
+                        self.curr_pos_x += delta_tx_odom
+                        self.curr_pos_y += delta_ty_odom
+                        self.curr_theta  += delta_theta
+
 
                         # Publish TF and Odometry for visualization and downstream tasks
                         self.publish_tf(self.curr_pos_x / 1000.0, self.curr_pos_y / 1000.0, self.curr_theta)
@@ -363,8 +386,8 @@ class ImageSubscriber(Node):
                         for i in range(len(local_robot_pts_3d)):
                             if i not in matched_curr_indices:
                                 pt = local_robot_pts_3d[i]
-                                gx = (self.curr_pos_x) + pt[0]*math.cos(theta) - pt[1]*math.sin(theta)
-                                gy = (self.curr_pos_y) + pt[0]*math.sin(theta) + pt[1]*math.cos(theta)
+                                gx = (self.curr_pos_x) + pt[0]*math.cos(self.curr_theta) - pt[1]*math.sin(self.curr_theta)
+                                gy = (self.curr_pos_y) + pt[0]*math.sin(self.curr_theta) + pt[1]*math.cos(self.curr_theta)
                                 self.map_landmarks.append({
                                     'pt_glob': [gx, gy, pt[2]], 
                                     'des': des_clean[i], 
