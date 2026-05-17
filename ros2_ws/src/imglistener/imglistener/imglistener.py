@@ -15,6 +15,8 @@ import numpy as np
 import time
 from scipy.spatial.transform import Rotation
 from nav_msgs.msg import Path
+from .extKalman import *
+from .constants import *
 
 class ImageSubscriber(Node):
     def __init__(self):
@@ -72,6 +74,8 @@ class ImageSubscriber(Node):
         self.curr_pos_x = 0.0
         self.curr_pos_y = 0.0
         self.curr_theta = 0.0
+
+        self.kalman_filter = ExtendedKalmanFilter(State(self.curr_pos_x, self.curr_pos_y, self.curr_theta))
 
     def get_kapsch_2d(self, P, Q):    
 
@@ -166,7 +170,7 @@ class ImageSubscriber(Node):
 
         self.tf_broadcaster.sendTransform(t)
 
-    def publish_odometry_msg(self, x, y, theta):
+    def publish_odometry_msg(self, x, y, theta, P_matrix):
 
         msg = Odometry()
         
@@ -190,13 +194,22 @@ class ImageSubscriber(Node):
         msg.pose.pose.orientation.z = quat[2]
         msg.pose.pose.orientation.w = quat[3]
         
-        # Pose Covariance
-        msg.pose.covariance = self.dummy_cov
+        cov = [0.0] * 36
+    
+        # Mapping der P-Matrix (x, y, theta) auf das ROS 6x6 Schema:
+        cov[0]  = P_matrix[0, 0]/1000000 # Var(x)
+        cov[1]  = P_matrix[0, 1]/1000000 # Cov(x, y)
+        cov[5]  = P_matrix[0, 2]/1000 # Cov(x, theta)
+        
+        cov[6]  = P_matrix[1, 0]/1000000 # Cov(y, x)
+        cov[7]  = P_matrix[1, 1]/1000000 # Var(y)
+        cov[11] = P_matrix[1, 2]/1000 # Cov(y, theta)
+        
+        cov[30] = P_matrix[2, 0]/1000 # Cov(theta, x)
+        cov[31] = P_matrix[2, 1]/1000 # Cov(theta, y)
+        cov[35] = P_matrix[2, 2] # Var(theta)
 
-        # Twist (Geschwindigkeit - hier Dummy 0.0)
-        msg.twist.twist.linear.x = 0.0
-        msg.twist.twist.angular.z = 0.0
-        msg.twist.covariance = self.dummy_cov
+        msg.pose.covariance = cov
 
         # Veröffentlichen
         self.odom_publisher.publish(msg)    
@@ -337,6 +350,7 @@ class ImageSubscriber(Node):
                     P_local = []
                     Q_curr  = []
                     matched_curr_indices = set()
+                    visible_landmarks = []
 
                     cos_t = math.cos(-self.curr_theta)
                     sin_t = math.sin(-self.curr_theta)
@@ -357,6 +371,7 @@ class ImageSubscriber(Node):
 
                         self.map_landmarks[map_idx]['seen_count'] += 1
                         self.map_landmarks[map_idx]['last_seen'] = self.frame_index
+                        visible_landmarks.append(self.map_landmarks[map_idx])
 
                     # ransac refinement to get robust transformation estimation
                     delta_R, delta_t, delta_theta = self.ransac_refinement(
@@ -365,20 +380,30 @@ class ImageSubscriber(Node):
 
                     if delta_R is not None:
                         # relative transformation in local robot coordinates to odom frame
-                        cos_c = math.cos(self.curr_theta)
-                        sin_c = math.sin(self.curr_theta)
-                        delta_tx_odom =  delta_t[0] * cos_c - delta_t[1] * sin_c
-                        delta_ty_odom =  delta_t[0] * sin_c + delta_t[1] * cos_c
+                        #cos_c = math.cos(self.curr_theta)
+                        #sin_c = math.sin(self.curr_theta)
+                        #delta_tx_odom =  delta_t[0] * cos_c - delta_t[1] * sin_c
+                        #delta_ty_odom =  delta_t[0] * sin_c + delta_t[1] * cos_c
 
                         # update current pose with the estimated transformation
-                        self.curr_pos_x += delta_tx_odom
-                        self.curr_pos_y += delta_ty_odom
-                        self.curr_theta  += delta_theta
+                        #self.curr_pos_x += delta_tx_odom
+                        #self.curr_pos_y += delta_ty_odom
+                        #self.curr_theta  += delta_theta
 
+                        z_dict = {}
+                        for i in matched_curr_indices:
+                            key = des_clean[i].tobytes()
+                            z_dict[key] = (local_robot_pts_3d[i][:2], local_robot_pts_3d[i][2]) # 2D position and depth
+        
+                        kalman_iteration_result = self.kalman_filter.kalman_iteration(Coordinate(delta_t[0], delta_t[1], 0.0), delta_theta, z_dict, visible_landmarks)
+
+                        self.curr_pos_x = kalman_iteration_result[0].x
+                        self.curr_pos_y = kalman_iteration_result[0].y
+                        self.curr_theta = kalman_iteration_result[0].theta
 
                         # Publish TF and Odometry for visualization and downstream tasks
                         self.publish_tf(self.curr_pos_x / 1000.0, self.curr_pos_y / 1000.0, self.curr_theta)
-                        self.publish_odometry_msg(self.curr_pos_x / 1000.0, self.curr_pos_y / 1000.0, self.curr_theta)
+                        self.publish_odometry_msg(self.curr_pos_x / 1000.0, self.curr_pos_y / 1000.0, self.curr_theta, kalman_iteration_result[1])
 
                         # Add new landmarks
                         # add not all points but only those that where mached with the current frame, to avoid adding outliers
