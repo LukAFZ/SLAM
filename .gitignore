@@ -20,6 +20,7 @@ parts/
 sdist/
 var/
 log/
+csv/
 install/
 wheels/
 test/
