@@ -76,17 +76,16 @@ class ExtendedKalmanFilter:
 		
 		self.set_JH(H)
 
-	def kalman_iteration(self, delta_p: Coordinate, delta_theta: float, z_dic: dict, visible_landmarks) -> Tuple[State, NDArray]:
+	def kalman_iteration(self, delta_p: Coordinate, delta_theta: float, measurements: list) -> Tuple[State, NDArray]:
 		x_tt1, P_tt1 = self.prediction(self.x, delta_p, delta_theta)
 		self.x = x_tt1
 		self.P = P_tt1
-		for landmark in visible_landmarks:
-			key = landmark['des'].tobytes()
-			if  z_dic.get(key) is None:
-				continue
-
-			z, depth_value = z_dic.get(key)
-			updated_x, updated_P = self.update(self.x, self.P, landmark, z, depth_value)
+		for landmark, z, depth_value in measurements:
+			
+			# Wichtig: z muss ein numpy array sein, damit die Vektor-Rechnung in update() klappt
+			z_array = np.array(z) 
+			
+			updated_x, updated_P = self.update(self.x, self.P, landmark, z_array, depth_value)
 			self.x = updated_x
 			self.P = updated_P
 
@@ -172,11 +171,12 @@ class ExtendedKalmanFilter:
 		a = 0.001477
 		b = 0.002294
 
+		depth_m = depth_value / 1000.0 # convert to meters
 		 # Tiefenfehler (d^2 für Kinect structured light)
-		s_z_m = a + b * (depth_value - 0.4)**2
+		s_z_m = a + b * (depth_m - 0.4)**2
 		s_z = s_z_m * 1000 # in mm
 		# Lateraler Fehler (Bogenlänge, ~0.086° Auflösung)
-		s_lat = depth_value * (2 * pi * 0.086 / 360) * 1000 # in mm
+		s_lat = depth_m * (2 * pi * 0.086 / 360) * 1000 # in mm
 
 		# Gesamtfehler (RSS - root sum of squares)
 		s_x = sqrt(s_lat**2 + 0.001**2) 
