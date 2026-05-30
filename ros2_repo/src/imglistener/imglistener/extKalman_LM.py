@@ -9,11 +9,12 @@ import scipy.stats as stats
 class ExtKalman:
     def __init__(self, x):
         self.x = x
-        self.state_func = 0
+        self.state_func = lambda x: x.copy() # Identity function for state transition (static landmark)
         self.meas_func = 0
-
+        self.JF = np.eye(3) # Identity matrix for state transition Jacobian
   
-        
+        self.P = np.eye(3) * 100 # Initial covariance (high uncertainty)
+        self.Q = np.eye(3) * 0.0001 # Process noise covariance (small, since we assume static landmarks)
 
         # for R calculation
         self.cu = 318.525
@@ -56,11 +57,12 @@ class ExtKalman:
 
     # set model noise -- eg. for EKF
     def setQ(self, Q):
-        self.Q = Q
+        self.Q = Q 
 
     def predictState(self):
         pstate = self.state_func(self.x)
-        pP = np.matmul(self.JF, np.matmul(self.P, self.JF.transpose()))+self.Q
+        pP = np.matmul(self.JF, np.matmul(self.P, self.JF.transpose()))+self.Q #JF P JF^\top + Q
+        #print("Predicted state:", pstate)
         return pstate, pP
 
     # return measurement prediction (\hat z_{t|t-1})
@@ -88,11 +90,13 @@ class ExtKalman:
     # Update self.x and self.P, return tuple (x_{t|t}, P_{t_t})
     def update(self, z, rob_curr, pt, depth_value):
         #print("State:", self.x)
-        #x_tt1, P_tt1 = self.predictState()
+        x_tt1, P_tt1 = self.predictState()
+        self.x = x_tt1
+        self.P = P_tt1
         #print("Predicted state:", x_tt1)
         self.setJH(rob_curr)
         self.setR(pt, depth_value, rob_curr)
-        self.setP(self.R)
+        #self.setP(self.R)
         
 
 
@@ -100,8 +104,8 @@ class ExtKalman:
         #print("Predicted measurement:", z_tt1)
         #print("Actual measurement:", z)
         K = self.computeKalmanGain()
-        self.x = self.x + np.matmul(K, (z-z_tt1))
-        self.P = self.P - np.matmul(K, np.matmul(self.JH, self.P))
+        self.x = self.x + np.matmul(K, (z-z_tt1)) #Innovation
+        self.P = self.P - np.matmul(K, np.matmul(self.JH, self.P)) #Kovarianzupdate
         return self.x, self.P
     
     def sigma_R_approximation(self, depth_value: float):
@@ -113,7 +117,7 @@ class ExtKalman:
         depth_m = depth_value / 1000.0 # convert to meters
          # Tiefenfehler (d^2 für Kinect structured light)
         s_z_m = a + b * (depth_m - 0.4)**2
-        s_z = s_z_m * 1000 # in mm
+        s_z = s_z_m * 1000 * 0.5 # in mm und mit Faktor 0.5 für realistischere Werte
         # Lateraler Fehler (Bogenlänge, ~0.086° Auflösung)
         s_x = 0.8/3
 

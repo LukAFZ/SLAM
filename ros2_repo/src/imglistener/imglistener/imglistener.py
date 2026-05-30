@@ -263,7 +263,7 @@ class ImageSubscriber(Node):
                 x, y = int(point.pt[0]), int(point.pt[1])
                 # get depth value at keypoint location and convert to meters
                 depth = self.depth_frame[y, x]
-                if(400 < depth < 4500): # filter out invalid depth values
+                if(400 < depth < 7500): # filter out invalid depth values
                     kp_clean.append(point)
         else:
             return # skip processing if depth frame is not available
@@ -328,7 +328,7 @@ class ImageSubscriber(Node):
             c_y = pt_cam[1]
             c_z = pt_cam[2]
             
-            if 0 < c_z < 4500: # In front of camera and in valid depth range
+            if 0 < c_z < 7500: # In front of camera and in valid depth range
                 # Project to 2D image plane with pinhole camera model
                 u_p = (c_x * self.f) / c_z + self.cu
                 v_p = (c_y * self.f) / c_z + self.cv
@@ -379,10 +379,7 @@ class ImageSubscriber(Node):
                         lm['last_seen'] = self.frame_index
                         visible_landmarks.append(lm)
 
-                        
-
-
-
+                    
                     # ransac refinement to get robust transformation estimation
                     delta_R, delta_t, delta_theta = self.ransac_refinement(
                         np.array(P_local), np.array(Q_curr)
@@ -423,9 +420,7 @@ class ImageSubscriber(Node):
                                 lm = self.map_landmarks[map_idx]
                                 depth = float(self.depth_frame[int(kp_clean[train_idx].pt[1]), int(kp_clean[train_idx].pt[0])])
 
-                                kalman_result, P = lm['ekf'].update(np.array(local_robot_pts_3d[train_idx]),
-                                np.array([self.curr_pos_x, self.curr_pos_y, self.curr_theta]), 
-                                np.array([kp_clean[train_idx].pt[0], kp_clean[train_idx].pt[1]]), depth)
+                                kalman_result, P = lm['ekf'].update(np.array(local_robot_pts_3d[train_idx]), np.array([self.curr_pos_x, self.curr_pos_y, self.curr_theta]), np.array([kp_clean[train_idx].pt[0], kp_clean[train_idx].pt[1]]), depth)
                                 
                                 self.map_landmarks[map_idx]['pt_glob'] = [kalman_result[0], kalman_result[1], kalman_result[2]]
 
