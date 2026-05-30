@@ -13,7 +13,7 @@ class ExtKalman:
         self.meas_func = 0
         self.JF = np.eye(3) # Identity matrix for state transition Jacobian
   
-        self.P = np.eye(3) * 100 # Initial covariance (high uncertainty)
+        self.P = np.eye(3) * 100.0 # Initial covariance (high uncertainty)
         self.Q = np.eye(3) * 0.0001 # Process noise covariance (small, since we assume static landmarks)
 
         # for R calculation
@@ -27,14 +27,13 @@ class ExtKalman:
         self.JF = JF
         
     # set Jacobi Matrix of the measurement function
-    def setJH(self, rob_curr):
-
-        self.JH = np.array([[cos(rob_curr[2]), sin(rob_curr[2]), 0.0],
-                            [-sin(rob_curr[2]), cos(rob_curr[2]), 0.0],
-                            [   0.0   ,           0.0,            1.0]])
+    def setJH(self, c, s):
+        self.JH = np.array([[c, s, 0.0],
+                            [-s, c, 0.0],
+                            [0.0, 0.0, 1.0]])
 
     # set measurement noise -- eg. for EKF
-    def setR(self, pt, depth_value, rob_curr):
+    def setR(self, pt, depth_value, c, s):
         s_z, s_x = self.sigma_R_approximation(depth_value)
 
         R_sigma_pixel = np.array([[s_x**2,  0.0,    0.0],
@@ -45,9 +44,9 @@ class ExtKalman:
                             [        0.0,      depth_value/self.f, (pt[1]-self.cv)/self.f],
                             [        0.0,               0.0,                 1.0]])
 
-        R_rot_kb = np.array([[cos(rob_curr[2]), sin(rob_curr[2]), 0.0],
-                             [-sin(rob_curr[2]), cos(rob_curr[2]), 0.0],
-                             [   0.0   ,           0.0,            1.0]])
+        R_rot_kb = np.array([[c, s, 0.0],
+                             [-s, c, 0.0],
+                             [0.0, 0.0, 1.0]])
 
         R_sigma_kinect = J_pixel@R_sigma_pixel@J_pixel.T
 
@@ -66,9 +65,9 @@ class ExtKalman:
         return pstate, pP
 
     # return measurement prediction (\hat z_{t|t-1})
-    def predictMeasurement(self, rob_curr):
-        pmeas = np.array([cos(rob_curr[2])*(self.x[0]-rob_curr[0])+sin(rob_curr[2])*(self.x[1]-rob_curr[1]),
-                           -sin(rob_curr[2])*(self.x[0]-rob_curr[0])+cos(rob_curr[2])*(self.x[1]-rob_curr[1]),
+    def predictMeasurement(self, rob_curr, c, s):
+        pmeas = np.array([c*(self.x[0]-rob_curr[0])+s*(self.x[1]-rob_curr[1]),
+                           -s*(self.x[0]-rob_curr[0])+c*(self.x[1]-rob_curr[1]),
                            self.x[2]])
         return pmeas
     
@@ -78,8 +77,9 @@ class ExtKalman:
         
         PHT = np.matmul(self.P, self.JH.transpose())         # PH^\top
         HPHT = np.matmul(self.JH, PHT)                      # HPH^\top
-        HPHTpRi = np.linalg.inv(HPHT + self.R)             # (HPH^\top + R)^{-1}
-        K = np.matmul(PHT, HPHTpRi)
+        #HPHTpRi = np.linalg.inv(HPHT + self.R)             # (HPH^\top + R)^{-1}
+        #K = np.matmul(PHT, HPHTpRi)
+        K = np.linalg.solve((HPHT + self.R).T, PHT.T).T
         return K
 
     def setP(self, P):
@@ -94,13 +94,13 @@ class ExtKalman:
         self.x = x_tt1
         self.P = P_tt1
         #print("Predicted state:", x_tt1)
-        self.setJH(rob_curr)
-        self.setR(pt, depth_value, rob_curr)
+        c, s = cos(rob_curr[2]), sin(rob_curr[2]) #Berechne nur 1-Mal
+        self.setJH(c, s)
+        self.setR(pt, depth_value, c, s)
         #self.setP(self.R)
         
 
-
-        z_tt1 = self.predictMeasurement(rob_curr)
+        z_tt1 = self.predictMeasurement(rob_curr, c, s)
         #print("Predicted measurement:", z_tt1)
         #print("Actual measurement:", z)
         K = self.computeKalmanGain()
