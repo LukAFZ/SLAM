@@ -14,7 +14,7 @@ class ExtKalman:
         self.JF = np.eye(3) # Identity matrix for state transition Jacobian
   
         self.P = np.eye(3) * 100.0 # Initial covariance (high uncertainty)
-        self.Q = np.eye(3) * 0.0001 # Process noise covariance (small, since we assume static landmarks)
+        self.Q = np.eye(3) * 0.000 # Hier nicht notwendig (Q=0), da Landmarks statisch Process noise covariance (small, since we assume static landmarks)
 
         # for R calculation
         self.cu = 318.525
@@ -58,6 +58,7 @@ class ExtKalman:
     def setQ(self, Q):
         self.Q = Q 
 
+    #Nicht notwendig, da Landmark Positionen statisch angenommen werden (nur für generische EKF Implementierung)
     def predictState(self):
         pstate = self.state_func(self.x)
         pP = np.matmul(self.JF, np.matmul(self.P, self.JF.transpose()))+self.Q #JF P JF^\top + Q
@@ -79,7 +80,7 @@ class ExtKalman:
         HPHT = np.matmul(self.JH, PHT)                      # HPH^\top
         #HPHTpRi = np.linalg.inv(HPHT + self.R)             # (HPH^\top + R)^{-1}
         #K = np.matmul(PHT, HPHTpRi)
-        K = np.linalg.solve((HPHT + self.R).T, PHT.T).T
+        K = np.linalg.solve((HPHT + self.R).T, PHT.T).T   #Gleiche Aktion wie Zeilen oben, aufgrund von Symmetrie von erlaubt, Recheneffizienter
         return K
 
     def setP(self, P):
@@ -90,16 +91,19 @@ class ExtKalman:
     # Update self.x and self.P, return tuple (x_{t|t}, P_{t_t})
     def update(self, z, rob_curr, pt, depth_value):
         #print("State:", self.x)
-        x_tt1, P_tt1 = self.predictState()
-        self.x = x_tt1
-        self.P = P_tt1
+
+        #Landmark Position bleibt gleich - kein Predict State notwendig, Q muss = 0
+        #x_tt1, P_tt1 = self.predictState()
+        #self.x = x_tt1
+        #self.P = P_tt1
         #print("Predicted state:", x_tt1)
+
         c, s = cos(rob_curr[2]), sin(rob_curr[2]) #Berechne nur 1-Mal
         self.setJH(c, s)
         self.setR(pt, depth_value, c, s)
         #self.setP(self.R)
         
-
+        #Messsfehler
         z_tt1 = self.predictMeasurement(rob_curr, c, s)
         #print("Predicted measurement:", z_tt1)
         #print("Actual measurement:", z)

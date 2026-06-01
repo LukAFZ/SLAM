@@ -488,6 +488,7 @@ class ImageSubscriber(Node):
                                 })
                         
                         # Remove landmarks (Quality metric = seen_count)
+                        # Möglicherweise Treshhold der P-matrix (als weitere Quality Metrik) hinzufügen, um nur sehr gut lokalisierte Landmarks zu behalten
                         self.map_landmarks = [lm for lm in self.map_landmarks if lm['seen_count'] > 4 or (self.frame_index - lm['last_seen']) < 15]
                     
                 else:
