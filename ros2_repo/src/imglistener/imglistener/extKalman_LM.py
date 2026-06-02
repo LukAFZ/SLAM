@@ -4,7 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy.stats as stats
 
-
+#Berechnung in Base_Koordinaten, Landmarks liegen im Odom vor -> Rotation von Odom- zu Basis-Koordinaten notwendig
 
 class ExtKalman:
     def __init__(self, x):
@@ -13,8 +13,8 @@ class ExtKalman:
         self.meas_func = 0
         self.JF = np.eye(3) # Identity matrix for state transition Jacobian
   
-        self.P = np.eye(3) * 100.0 # Initial covariance (high uncertainty)
-        self.Q = np.eye(3) * 0.000 # Hier nicht notwendig (Q=0), da Landmarks statisch Process noise covariance (small, since we assume static landmarks)
+        self.P = np.eye(3) * 0.001 # Initial covariance wird spaeter ueberschrieben
+        self.Q = np.eye(3) * 1 # Hier nicht notwendig (Q=0), da Landmarks statisch Process noise covariance (small, since we assume static landmarks)
 
         # for R calculation
         self.cu = 318.525
@@ -48,9 +48,9 @@ class ExtKalman:
                              [-s, c, 0.0],
                              [0.0, 0.0, 1.0]])
 
-        R_sigma_kinect = J_pixel@R_sigma_pixel@J_pixel.T
+        R_sigma_kinect = J_pixel@R_sigma_pixel@J_pixel.T # Strahlensatz für Fehlerfortpflanzung von Pixel- zu Kinect-Koordinaten
 
-        R_sigma_base = R_rot_kb.T@R_sigma_kinect@R_rot_kb
+        R_sigma_base = R_rot_kb.T@R_sigma_kinect@R_rot_kb # Rotation von Kinect- zu Basis-Koordinaten
 
         self.R = R_sigma_base
 
@@ -78,9 +78,9 @@ class ExtKalman:
         
         PHT = np.matmul(self.P, self.JH.transpose())         # PH^\top
         HPHT = np.matmul(self.JH, PHT)                      # HPH^\top
-        #HPHTpRi = np.linalg.inv(HPHT + self.R)             # (HPH^\top + R)^{-1}
-        #K = np.matmul(PHT, HPHTpRi)
-        K = np.linalg.solve((HPHT + self.R).T, PHT.T).T   #Gleiche Aktion wie Zeilen oben, aufgrund von Symmetrie von erlaubt, Recheneffizienter
+        HPHTpRi = np.linalg.inv(HPHT + self.R)             # (HPH^\top + R)^{-1}
+        K = np.matmul(PHT, HPHTpRi)
+        #K = np.linalg.solve((HPHT + self.R).T, PHT.T).T   #Gleiche Aktion wie Zeilen oben, nur bei vollständiger Symmetrie erlaubt, Recheneffizienter
         return K
 
     def setP(self, P):
@@ -92,16 +92,17 @@ class ExtKalman:
     def update(self, z, rob_curr, pt, depth_value):
         #print("State:", self.x)
 
+        c, s = cos(rob_curr[2]), sin(rob_curr[2]) #Berechne nur 1-Mal
+        self.setR(pt, depth_value, c, s)
+        self.setP(self.R)
+
         #Landmark Position bleibt gleich - kein Predict State notwendig, Q muss = 0
-        #x_tt1, P_tt1 = self.predictState()
-        #self.x = x_tt1
-        #self.P = P_tt1
+        x_tt1, P_tt1 = self.predictState()
+        self.x = x_tt1
+        self.P = P_tt1
         #print("Predicted state:", x_tt1)
 
-        c, s = cos(rob_curr[2]), sin(rob_curr[2]) #Berechne nur 1-Mal
         self.setJH(c, s)
-        self.setR(pt, depth_value, c, s)
-        #self.setP(self.R)
         
         #Messsfehler
         z_tt1 = self.predictMeasurement(rob_curr, c, s)

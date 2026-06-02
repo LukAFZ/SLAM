@@ -577,13 +577,13 @@ class ImageSubscriber(Node):
                     # Die Diagonalelemente sind die Varianzen (σ²). 
                     # Die Standardabweichung σ ist die Wurzel daraus und gibt die Achsenlänge an.
                     # Wir multiplizieren mit z.B. 2.0 oder 3.0 für ein 2σ oder 3σ Vertrauensintervall,
-                    # und teilen durch 1000, falls deine EKF-Werte in mm arbeiten!
+                    # und teilen durch 1000, da EKF-Werte in mm arbeiten!
                     scale_factor = 2.0  # 2-Sigma-Bereich
                     
                     # Achte auf deine Einheiten (wenn EKF in mm rechnet, durch 1000 teilen):
                     size_x = scale_factor * math.sqrt(abs(P_matrix[0, 0])) / 100
                     size_y = scale_factor * math.sqrt(abs(P_matrix[1, 1])) / 100
-                    size_z = scale_factor * math.sqrt(abs(P_matrix[2, 2])) / 100
+                    size_z = 0.01 #scale_factor * math.sqrt(abs(P_matrix[2, 2])) / 100
                 except AttributeError:
                     # Fallback, falls die Kovarianz noch nicht ausgelesen werden kann
                     size_x, size_y, size_z = 0.05, 0.05, 0.05
