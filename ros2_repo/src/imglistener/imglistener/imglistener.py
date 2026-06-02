@@ -12,11 +12,13 @@ from cv_bridge import CvBridge
 import cv2
 import math
 import numpy as np
-import time
 from scipy.spatial.transform import Rotation
 from nav_msgs.msg import Path
 from .extKalman_LM import *
 from .constants import *
+
+from sensor_msgs.msg import PointField
+import struct
 
 class ImageSubscriber(Node):
     def __init__(self):
@@ -58,6 +60,16 @@ class ImageSubscriber(Node):
         self.f = 526.61
         self.frame_counter = 10
         self.min_matches = 10
+        self.kinect_width = 640
+        self.kinect_height = 480
+
+        # Min und Maximale Laenge fuer Kinect Depth
+        self.min_depth = 400
+        self.max_depth = 7500
+
+        # Ransac Configuration
+        self.ransac_iterations = 200
+        self.ransac_threshold = 50
 
         # Store 3D points
         self.current_points_3d = []
@@ -66,6 +78,8 @@ class ImageSubscriber(Node):
 
         # Map Management storage (Landmarks in 3D)
         self.map_landmarks = [] # List of {'pt_glob': [x,y,z], 'des': descriptor, 'seen_count': int, 'last_seen': int}
+        self.seen_count_threshold = 5
+        self.last_seen_threshold = 15
         self.keyframes = []
         self.frame_index = 0
         self.to_proceed_frames = 1
@@ -102,8 +116,8 @@ class ImageSubscriber(Node):
 
     def ransac_refinement(self, P, Q):
         
-        max_iterations= 200
-        threshold= 50
+        max_iterations = self.ransac_iterations
+        threshold = self.ransac_threshold
         best_rotation = None
         best_translation = None
         best_theta = 0
@@ -216,6 +230,7 @@ class ImageSubscriber(Node):
         
     def listener_callback_rgb(self,msg):
 
+        #Initialize the transformation matrix if not already done
         if self.kinect_to_base_matrix is None:
             try:
                 # get TF from kinect_depth to base_link
@@ -263,7 +278,7 @@ class ImageSubscriber(Node):
                 x, y = int(point.pt[0]), int(point.pt[1])
                 # get depth value at keypoint location and convert to meters
                 depth = self.depth_frame[y, x]
-                if(400 < depth < 7500): # filter out invalid depth values
+                if(self.min_depth < depth < self.max_depth): # filter out invalid depth values
                     kp_clean.append(point)
         else:
             return # skip processing if depth frame is not available
@@ -328,12 +343,13 @@ class ImageSubscriber(Node):
             c_y = pt_cam[1]
             c_z = pt_cam[2]
             
-            if 0 < c_z < 7500: # In front of camera and in valid depth range
+            #Prüfe, ob der Punkt vor der Kamera liegt und innerhalb des gültigen Tiefenbereichs liegt
+            if 0 < c_z < self.max_depth: # In front of camera and in valid depth range
                 # Project to 2D image plane with pinhole camera model
                 u_p = (c_x * self.f) / c_z + self.cu
                 v_p = (c_y * self.f) / c_z + self.cv
                 # Check if projected point is within image bounds
-                if 0 <= u_p <= 640 and 0 <= v_p <= 480:
+                if 0 <= u_p <= self.kinect_width and 0 <= v_p <= self.kinect_height:
                     visible_des.append(lm['des'])
                     visible_pts_glob_2d.append(lm['pt_glob'][:2])
                     visible_map_indices.append(idx)
@@ -381,9 +397,7 @@ class ImageSubscriber(Node):
 
                     
                     # ransac refinement to get robust transformation estimation
-                    delta_R, delta_t, delta_theta = self.ransac_refinement(
-                        np.array(P_local), np.array(Q_curr)
-                    )
+                    delta_R, delta_t, delta_theta = self.ransac_refinement(np.array(P_local), np.array(Q_curr))
 
                     if delta_R is not None:
                         #z_x = 0.0
@@ -398,7 +412,7 @@ class ImageSubscriber(Node):
                         # update current pose with the estimated transformation
                         self.curr_pos_x += delta_tx_odom
                         self.curr_pos_y += delta_ty_odom
-                        self.curr_theta  += delta_theta
+                        self.curr_theta += delta_theta
                         
                         P_array = np.array(P_local)
                         Q_array = np.array(Q_curr)
@@ -411,7 +425,7 @@ class ImageSubscriber(Node):
 
                         # Dein RANSAC-Threshold war 50, mit Toleranz (1.25) = 62.5
                         for i, match in enumerate(matches):
-                            if errors[i] < 62.5: # Nur echte Inliers zulassen!
+                            if errors[i] < self.ransac_threshold*1.25: # Nur echte Inliers zulassen!
                                 map_idx = visible_map_indices[match.queryIdx]
                                 train_idx = match.trainIdx
 
@@ -449,7 +463,7 @@ class ImageSubscriber(Node):
                         # Dein RANSAC-Threshold war 50, mit Toleranz (1.25) = 62.5
                         for i, match in enumerate(matches):
                             all_matched_train_indices.add(match.trainIdx)
-                            if errors[i] < 62.5: # Nur echte Inliers zulassen!
+                            if errors[i] < self.ransac_threshold*1.25: # Nur echte Inliers zulassen!
                                 map_idx = visible_map_indices[match.queryIdx]
                                 train_idx = match.trainIdx
                                 
@@ -489,8 +503,8 @@ class ImageSubscriber(Node):
                         
                         # Remove landmarks (Quality metric = seen_count)
                         # Möglicherweise Treshhold der P-matrix (als weitere Quality Metrik) hinzufügen, um nur sehr gut lokalisierte Landmarks zu behalten
-                        self.map_landmarks = [lm for lm in self.map_landmarks if lm['seen_count'] > 4 or (self.frame_index - lm['last_seen']) < 15]
-                    
+                        self.map_landmarks = [lm for lm in self.map_landmarks if lm['seen_count'] > self.seen_count_threshold or (self.frame_index - lm['last_seen']) < self.last_seen_threshold]
+
                 else:
                     print(f"Not enough matches found for RANSAC {len(matches)}")
             
@@ -505,9 +519,47 @@ class ImageSubscriber(Node):
         header = std_msgs.msg.Header()
         header.stamp = self.get_clock().now().to_msg()
         header.frame_id = self.odom_frame
-        map_points = [[lm['pt_glob'][0]/1000.0, lm['pt_glob'][1]/1000.0, lm['pt_glob'][2]/1000.0] for lm in self.map_landmarks]
-        if map_points:
-            self.pcl_publisher.publish(pcl2.create_cloud_xyz32(header, map_points))
+
+        #map_points = [[lm['pt_glob'][0]/1000.0, lm['pt_glob'][1]/1000.0, lm['pt_glob'][2]/1000.0] for lm in self.map_landmarks]
+        #if map_points:
+        #    self.pcl_publisher.publish(pcl2.create_cloud_xyz32(header, map_points))
+
+        if self.map_landmarks:
+            # 1. Felder definieren
+            fields = [
+                PointField(name='x', offset=0, datatype=PointField.FLOAT32, count=1),
+                PointField(name='y', offset=4, datatype=PointField.FLOAT32, count=1),
+                PointField(name='z', offset=8, datatype=PointField.FLOAT32, count=1),
+                PointField(name='rgb', offset=12, datatype=PointField.UINT32, count=1),
+                PointField(name='intensity', offset=16, datatype=PointField.FLOAT32, count=1)
+            ]
+
+            map_points_data = []
+            
+            # Da du im Code die originalen Bilddaten (frame) hast, 
+            # müssen wir die Farbinformationen während des Matchings puffern oder auslesen.
+            # Für dieses Beispiel nehmen wir an, wir packen die Farbe und den seen_count hinein.
+            
+            for lm in self.map_landmarks:
+                # Koordinaten in Metern
+                x = lm['pt_glob'][0] / 1000.0
+                y = lm['pt_glob'][1] / 1000.0
+                z = lm['pt_glob'][2] / 1000.0
+                
+                # Standardfarbe (z.B. Grün für Landmarks, da deine Keypoints im Bild auch grün sind)
+                # Format: 0x00RRGGBB
+                r, g, b = 0, 255, 0 
+                rgb_packed = struct.unpack('I', struct.pack('BBBB', b, g, r, 0))[0]
+                
+                # Qualität/Sichtungen als Intensity
+                intensity = float(lm['seen_count'])
+                
+                # Punkt-Array anhängen
+                map_points_data.append([x, y, z, rgb_packed, intensity])
+
+        # Erzeuge die erweiterte Cloud
+        pc2_msg = pcl2.create_cloud(header, fields, map_points_data)
+        self.pcl_publisher.publish(pc2_msg)
 
         # empty the 3D points list for the next frame
         self.current_points_3d = []
