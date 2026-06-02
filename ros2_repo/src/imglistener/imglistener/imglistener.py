@@ -6,6 +6,7 @@ from sensor_msgs.msg import PointCloud2
 from geometry_msgs.msg import TransformStamped
 from tf2_ros import TransformBroadcaster, TransformListener, Buffer
 from nav_msgs.msg import Odometry
+from visualization_msgs.msg import Marker, MarkerArray
 import std_msgs.msg
 import sensor_msgs_py.point_cloud2 as pcl2
 from cv_bridge import CvBridge
@@ -32,6 +33,7 @@ class ImageSubscriber(Node):
             '/serf01/nav_rgbd_1/depth/image_raw', self.listener_callback_depth, 10)
         # Publisher for 3D pointcloud
         self.pcl_publisher = self.create_publisher(PointCloud2, '/serf01/nav_rgbd_1/pointcloud', 10)
+        self.marker_publisher = self.create_publisher(MarkerArray, '/serf01/nav_rgbd_1/covariance_markers', 10)
 
         self.tf_broadcaster = TransformBroadcaster(self)
         self.odom_frame = 'odom'
@@ -560,6 +562,64 @@ class ImageSubscriber(Node):
         # Erzeuge die erweiterte Cloud
         pc2_msg = pcl2.create_cloud(header, fields, map_points_data)
         self.pcl_publisher.publish(pc2_msg)
+
+        # --- Kovarianz-Ellipsoide als MarkerArray publizieren ---
+        if self.map_landmarks:
+            marker_array = MarkerArray()
+            
+            for idx, lm in enumerate(self.map_landmarks):
+                # 1. Hole dir die Kovarianzmatrix des Landmarks (3x3 für X, Y, Z)
+                # Falls dein EKF im Code die Matrix 'P' nennt, greife darauf zu.
+                # Beispielhaft nehmen wir an, sie ist ein numpy-Array:
+                try:
+                    P_matrix = lm['ekf'].P  # Passe dies an deine exakte extKalman_LM Struktur an
+                    
+                    # Die Diagonalelemente sind die Varianzen (σ²). 
+                    # Die Standardabweichung σ ist die Wurzel daraus und gibt die Achsenlänge an.
+                    # Wir multiplizieren mit z.B. 2.0 oder 3.0 für ein 2σ oder 3σ Vertrauensintervall,
+                    # und teilen durch 1000, falls deine EKF-Werte in mm arbeiten!
+                    scale_factor = 2.0  # 2-Sigma-Bereich
+                    
+                    # Achte auf deine Einheiten (wenn EKF in mm rechnet, durch 1000 teilen):
+                    size_x = scale_factor * math.sqrt(abs(P_matrix[0, 0])) / 100
+                    size_y = scale_factor * math.sqrt(abs(P_matrix[1, 1])) / 100
+                    size_z = scale_factor * math.sqrt(abs(P_matrix[2, 2])) / 100
+                except AttributeError:
+                    # Fallback, falls die Kovarianz noch nicht ausgelesen werden kann
+                    size_x, size_y, size_z = 0.05, 0.05, 0.05
+                    print(f"Warnung: Keine Kovarianzmatrix für Landmark {idx} gefunden, benutze Standardgröße.")
+
+                marker = Marker()
+                marker.header.frame_id = self.odom_frame
+                marker.header.stamp = self.get_clock().now().to_msg()
+                marker.ns = "landmark_covariances"
+                marker.id = idx
+                marker.type = Marker.SPHERE  # Nutze eine Kugel, die wir zur Ellipse verzerren
+                marker.action = Marker.ADD
+                
+                # Position des Ellipsoids (in Metern)
+                marker.pose.position.x = lm['pt_glob'][0] / 1000.0
+                marker.pose.position.y = lm['pt_glob'][1] / 1000.0
+                marker.pose.position.z = lm['pt_glob'][2] / 1000.0
+                
+                # Orientierung (wenn du es einfach halten willst, nimmst du die Hauptachsen, 
+                # also keine Rotation relativ zum Odom-Frame)
+                marker.pose.orientation.w = 1.0
+                
+                # Skalierung entspricht dem Unsicherheitsbereich
+                marker.scale.x = float(size_x)
+                marker.scale.y = float(size_y)
+                marker.scale.z = float(size_z)
+                
+                # Farbe des Ellipsoids (z. B. teiltransparentes Rot)
+                marker.color.r = 1.0
+                marker.color.g = 0.0
+                marker.color.b = 0.0
+                marker.color.a = 0.2  # Wichtig: Transparenz (Alpha), damit man durchsieht!
+                
+                marker_array.markers.append(marker)
+                
+            self.marker_publisher.publish(marker_array)
 
         # empty the 3D points list for the next frame
         self.current_points_3d = []
