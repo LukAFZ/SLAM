@@ -25,6 +25,11 @@ import struct
 
 class ImageSubscriber(Node):
     def __init__(self):
+
+        # Alle implementierten Algorithmen
+        self.algorithmen = algorithms()
+        self.config = configurations()
+
         super().__init__('image_subscriber')
         self.bridge = CvBridge()
         # Subscribe to RGB image topic
@@ -58,33 +63,32 @@ class ImageSubscriber(Node):
         self.bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
 
         # Image center coordinates
-        self.cu = configurations().cu
-        self.cv = configurations().cv
+        self.cu = self.config.cu
+        self.cv = self.config.cv
         # Focal length 
-        self.f = configurations().f
+        self.f = self.config.f
 
-        self.frame_counter = configurations().frame_counter
-        self.min_matches = configurations().min_matches
+        self.frame_counter = self.config.frame_counter
+        self.min_matches = self.config.min_matches
 
         # Min und Maximale Laenge fuer Kinect Depth
-        self.min_depth = configurations().min_depth
-        self.max_depth = configurations().max_depth
+        self.min_depth = self.config.min_depth
+        self.max_depth = self.config.max_depth
 
         # Store 3D points
         self.current_points_3d = []
         self.current_descriptors = []
         self.point_history = []
 
-        self.ransac_iterations = configurations().ransac_iterations
-        self.ransac_threshold = configurations().ransac_threshold
+        self.ransac_iterations = self.config.ransac_iterations
+        self.ransac_threshold = self.config.ransac_threshold
 
         # Map Management storage (Landmarks in 3D)
         self.map_landmarks = [] # List of {'pt_glob': [x,y,z], 'des': descriptor, 'seen_count': int, 'last_seen': int}
-        self.seen_count_threshold = 5
-        self.last_seen_threshold = 15
+        self.seen_count_threshold = self.config.seen_count_threshold
+        self.last_seen_threshold = self.config.last_seen_threshold
         self.keyframes = []
         self.frame_index = 0
-        self.to_proceed_frames = 1
         self.queue_index = 0
         
         self.curr_pos_x = 0.0
@@ -172,9 +176,6 @@ class ImageSubscriber(Node):
         
     def listener_callback_rgb(self,msg):
 
-        # Alle implementierten Algorithmen
-        algorithmen = algorithms()
-
         #Initialize the transformation matrix if not already done
         if self.kinect_to_base_matrix is None:
             try:
@@ -234,7 +235,7 @@ class ImageSubscriber(Node):
             return # skip processing if no valid keypoints/descriptors are found
 
         # 3D coordinates calculation
-        local_robot_pts_3d, self.current_points_3d, self.current_descriptors = algorithmen.calculate_local_cords_from_matches(kp_clean, des_clean, self.kinect_to_base_matrix, self.depth_frame, self.current_points_3d, self.current_descriptors)
+        local_robot_pts_3d = self.algorithmen.calculate_local_cords_from_matches(kp_clean, des_clean, self.kinect_to_base_matrix, self.depth_frame)
 
         # Initial map creation
         if not self.map_landmarks:
@@ -248,7 +249,7 @@ class ImageSubscriber(Node):
                 })
 
         # Viewing Cone / Frustum Culling
-        visible_des, visible_pts_glob_2d, visible_map_indices = algorithmen.test_only_for_visible_landmarks(self.map_landmarks, self.curr_pos_x, self.curr_pos_y, self.curr_theta, self.base_to_kinect_matrix)
+        visible_des, visible_pts_glob_2d, visible_map_indices = self.algorithmen.test_only_for_visible_landmarks(self.map_landmarks, self.curr_pos_x, self.curr_pos_y, self.curr_theta, self.base_to_kinect_matrix)
         
         delta_R = None
         delta_t = None
@@ -293,7 +294,7 @@ class ImageSubscriber(Node):
 
                     
                     # ransac refinement to get robust transformation estimation
-                    delta_R, delta_t, delta_theta = algorithmen.ransac_refinement(np.array(P_local), np.array(Q_curr))
+                    delta_R, delta_t, delta_theta = self.algorithmen.ransac_refinement(np.array(P_local), np.array(Q_curr))
 
                     if delta_R is not None:
                         #z_x = 0.0
@@ -364,7 +365,7 @@ class ImageSubscriber(Node):
                 else:
                     print(f"Zu wenig Matches gefunden: {len(matches)}")
             
-            self.frame_counter = self.to_proceed_frames    
+            self.frame_counter = self.config.frame_counter # reset frame counter  
 
         # draw keypoints in green
         img2 = cv2.drawKeypoints(frame, kp_clean, None, color=(0,255,0), flags=0)

@@ -17,5 +17,8 @@ class configurations():
         self.min_depth = 400
         self.max_depth = 7500
 
-        self.frame_counter = 10
+        self.seen_count_threshold = 5
+        self.last_seen_threshold = 15
+
+        self.frame_counter = 1 #Anzahl der Frames, die nach einem Update übersprungen werden, um die Stabilität zu erhöhen (z.B. bei RANSAC-Updates)
         self.min_matches = 10

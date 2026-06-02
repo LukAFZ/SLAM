@@ -1,20 +1,21 @@
 import numpy as np
 import math
-from .config import *
+from .config import configurations
 
 class algorithms:
 
     def __init__(self):
-        self.ransac_iterations = configurations().ransac_iterations
-        self.ransac_threshold = configurations().ransac_threshold
+        self.config = configurations()
+        self.ransac_iterations = self.config.ransac_iterations
+        self.ransac_threshold = self.config.ransac_threshold
 
-        self.cu = configurations().cu
-        self.cv = configurations().cv
-        self.f = configurations().f
-        self.kinect_height = configurations().kinect_height
-        self.kinect_width = configurations().kinect_width
-        self.min_depth = configurations().min_depth
-        self.max_depth = configurations().max_depth
+        self.cu = self.config.cu
+        self.cv = self.config.cv
+        self.f = self.config.f
+        self.kinect_height = self.config.kinect_height
+        self.kinect_width = self.config.kinect_width
+        self.min_depth = self.config.min_depth
+        self.max_depth = self.config.max_depth
 
     def ransac_refinement(self, P, Q):
         
@@ -83,7 +84,9 @@ class algorithms:
         #print(f"Translation vector: {Translation}")
         return Rotation_matrix, Translation, theta
     
-    def calculate_local_cords_from_matches(self, kp_clean, des_clean, kinect_to_base_matrix, depth_frame, current_points_3d, current_descriptors):
+    def calculate_local_cords_from_matches(self, kp_clean, des_clean, kinect_to_base_matrix, depth_frame):
+        #current_points_3d = []
+        #current_descriptors = []
         local_robot_pts_3d = []
         for point, des in zip(kp_clean, des_clean):
             depth = float(depth_frame[int(point.pt[1]), int(point.pt[0])])
@@ -93,8 +96,8 @@ class algorithms:
             y_c = (point.pt[1] - self.cv) * depth / self.f
             z_c = depth
 
-            current_points_3d.append((x_c, y_c, z_c))
-            current_descriptors.append(des)
+            #current_points_3d.append((x_c, y_c, z_c))
+            #current_descriptors.append(des)
             # Roboterkoordinaten (X=vorne, Y=links, Z=hoch)
 
             pt_kinect = np.array([x_c, y_c, z_c, 1.0])
@@ -102,7 +105,7 @@ class algorithms:
             
             local_robot_pts_3d.append([pt_base[0], pt_base[1], pt_base[2]])
 
-        return local_robot_pts_3d, current_points_3d, current_descriptors
+        return local_robot_pts_3d
     
     def test_only_for_visible_landmarks(self, map_landmarks, curr_pos_x, curr_pos_y, curr_theta, base_to_kinect_matrix):
          
