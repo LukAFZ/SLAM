@@ -13,8 +13,8 @@ class ExtKalman:
         self.meas_func = 0
 
   
-        
-
+        self.JF = np.eye(3)
+        self.Q=np.eye(3)
         # for R calculation
         self.cu = 318.525
         self.cv = 241.181
@@ -59,7 +59,8 @@ class ExtKalman:
         self.Q = Q
 
     def predictState(self):
-        pstate = self.state_func(self.x)
+        #pstate = self.state_func(self.x)
+        pstate = self.x
         pP = np.matmul(self.JF, np.matmul(self.P, self.JF.transpose()))+self.Q
         return pstate, pP
 
@@ -87,13 +88,15 @@ class ExtKalman:
 
     # Update self.x and self.P, return tuple (x_{t|t}, P_{t_t})
     def update(self, z, rob_curr, pt, depth_value):
-        #print("State:", self.x)
-        #x_tt1, P_tt1 = self.predictState()
-        #print("Predicted state:", x_tt1)
-        self.setJH(rob_curr)
+
         self.setR(pt, depth_value, rob_curr)
         self.setP(self.R)
+        #print("State:", self.x)
+        x_tt1, P_tt1 = self.predictState()
+        #print("Predicted state:", x_tt1)
+        self.setJH(rob_curr)
         
+        self.P = P_tt1
 
 
         z_tt1 = self.predictMeasurement(rob_curr)
