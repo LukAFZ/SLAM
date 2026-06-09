@@ -92,7 +92,7 @@ class SlamNode(Node):
         frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
 
         # Slam processing in slam_core.py
-        pose_updated, rx, ry, rtheta = self.slam.process_frame(
+        pose_updated, rx, ry, rtheta, best_map_manager = self.slam.process_frame(
             frame, self.depth_frame, 
             self.kinect_to_base_matrix, self.base_to_kinect_matrix, 
             self.frame_counter
@@ -108,7 +108,7 @@ class SlamNode(Node):
         header = std_msgs.msg.Header()
         header.stamp = self.get_clock().now().to_msg()
         header.frame_id = self.odom_frame
-        map_points = self.slam.map_manager.get_all_points_for_msg()
+        map_points = best_map_manager.get_all_points_for_msg()
         if map_points:
             self.pcl_publisher.publish(pcl2.create_cloud_xyz32(header, map_points))
 

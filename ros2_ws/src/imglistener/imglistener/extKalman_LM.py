@@ -105,7 +105,9 @@ class ExtKalman:
         K = self.computeKalmanGain()
         self.x = self.x + np.matmul(K, (z-z_tt1))
         self.P = self.P - np.matmul(K, np.matmul(self.JH, self.P))
-        return self.x, self.P
+
+        likelihood = self.compute_measurement_likelihood(z, z_tt1)
+        return self.x, self.P, likelihood
     
     def sigma_R_approximation(self, depth_value: float):
         #a→ konstanter Offset (Rauschen bei minimalem Abstand)
@@ -122,3 +124,26 @@ class ExtKalman:
 
 
         return s_z, s_x
+
+    def compute_measurement_likelihood(self, z, z_tt1):
+        # compute the likelihood of the measurement given the current state estimate
+        # using the measurement noise covariance R and the innovation (z - z_tt1)
+        innovation = (z - z_tt1)
+
+        try:
+            PHT = np.matmul(self.P, self.JH.transpose())         # PH^\top
+            HPHT = np.matmul(self.JH, PHT)                      # HPH^\top
+            S = HPHT + self.R  # Innovation covariance
+            S_inv = np.linalg.inv(S)
+            S_det = np.linalg.det(S)
+
+            exponent = -0.5 * innovation.T @ S_inv @ innovation
+
+            #likelihood = (1.0 / np.sqrt(((2 * np.pi) ** 3) * S_det)) * np.exp(exponent)
+            log_likelihood = -0.5 * (3 * np.log(2 * np.pi) + np.log(S_det)) + exponent
+
+            print(f"Landmark Likelihood: {log_likelihood:.6f}")
+            return log_likelihood
+        except np.linalg.LinAlgError:
+            # Fallback block to guard against zero or singular determinant matrix crashes
+            return -700

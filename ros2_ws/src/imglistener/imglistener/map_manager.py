@@ -45,7 +45,6 @@ class MapManager:
     def clean_map(self, frame_index):
         """delete landmarks that are not seen for a long time or have a low seen_count (quality metric)"""
         # Remove landmarks (Quality metric = seen_count)
-        # Möglicherweise Treshhold der P-matrix (als weitere Quality Metrik) hinzufügen, um nur sehr gut lokalisierte Landmarks zu behalten
         self.landmarks = [
             lm for lm in self.landmarks 
             if lm['seen_count'] > self.config.seen_count_threshold 

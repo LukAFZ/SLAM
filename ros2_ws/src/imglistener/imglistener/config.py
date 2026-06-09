@@ -1,6 +1,9 @@
 class configurations():
 
     def __init__(self):
+
+        self.num_robots = 1
+
         # Ransac Configuration
         self.ransac_iterations = 200
         self.ransac_threshold = 50
@@ -20,5 +23,9 @@ class configurations():
         self.seen_count_threshold = 5
         self.last_seen_threshold = 15
 
-        self.frame_counter = 1 #Anzahl der Frames, die nach einem Update übersprungen werden, um die Stabilität zu erhöhen (z.B. bei RANSAC-Updates)
+        self.frame_counter = 5 #Anzahl der Frames, die nach einem Update übersprungen werden, um die Stabilität zu erhöhen (z.B. bei RANSAC-Updates)
         self.min_matches = 10
+
+        self.sigma_x = 5.0
+        self.sigma_y = 5.0
+        self.sigma_theta = 0.01
