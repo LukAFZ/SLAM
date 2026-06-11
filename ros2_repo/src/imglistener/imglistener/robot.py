@@ -120,9 +120,8 @@ class Robot():
                     errors = np.linalg.norm(P_array - Q_transformed, axis=1)
 
 
-                    # Dein RANSAC-Threshold war 50, mit Toleranz (1.25) = 62.5
                     for i, match in enumerate(matches):
-                        if errors[i] < self.config.ransac_threshold * 1.25: # Nur echte Inliers zulassen!
+                        if errors[i] < self.config.ransac_threshold: # Nur echte Inliers zulassen!
                             map_idx = visible_map_indices[match.queryIdx]
                             train_idx = match.trainIdx
 
@@ -130,6 +129,7 @@ class Robot():
                             lm = self.map_manager.landmarks[map_idx]
                             depth = float(depth_frame[int(kp_clean[train_idx].pt[1]), int(kp_clean[train_idx].pt[0])])
 
+                            #Update Kalman Filter für Landmarke mit aktuellem Messwert
                             kalman_result, P, log_likelihood = lm.ekf.update(
                                 np.array(local_robot_pts_3d[train_idx]), 
                                 np.array([self.pose.x, self.pose.y, self.pose.theta]), 

@@ -85,18 +85,19 @@ class VisualSLAMCore:
             #else:
             #    log_r_l = -700
             log_robot_likelihood.append(log_r_l)
-            print(f"Robot ID: {robot.id}, Log_Likelihood: {log_r_l}")
 
 
         max_log_l = max(log_robot_likelihood)
 
+
+        #BERECHNUNG STIMMT NOCH NICHT
         # 2. Ziehe das Maximum ab, bevor du die Exponentialfunktion anwendest.
         # Das verschiebt den besten Partikel auf log(w) = 0 -> w = e^0 = 1.0.
-        # Alle anderen Partikel skalieren sich relativ dazu, was Underflows unmöglich macht!
         for idx, robot in enumerate(self.robots):
+            print(f"Robot ID: {robot.id}, Log_Likelihood-Maximum: {log_robot_likelihood[idx] - max_log_l}")
             robot.likelihood = np.exp(log_robot_likelihood[idx] - max_log_l)
 
-        # 3. Jetzt wie gewohnt normalisieren, damit die Summe aller Gewichte 1 ergibt
+        # 3. Normarlisieren, damit die Summe aller Gewichte 1 ergibt
         total_weight = sum(robot.likelihood for robot in self.robots)
         if total_weight > 0:
             for robot in self.robots:

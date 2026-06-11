@@ -121,6 +121,7 @@ class SlamNode(Node):
 
         self.frame_counter -= 1
         self.frame_index += 1
+        print(f"Frame Index: {self.frame_index}, Frame Counter: {self.frame_counter}")
 
     def publish_tf(self, x, y, theta):
         t = TransformStamped()
