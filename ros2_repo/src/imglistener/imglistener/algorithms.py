@@ -116,12 +116,12 @@ class algorithms:
 
         for idx, lm in enumerate(map_landmarks):
             # Calculate relative landmark position to robot
-            dx = lm.pt_glob.x - (robot_pose.x)
-            dy = lm.pt_glob.y - (robot_pose.y)
+            delta_x = lm.pt_glob.x - (robot_pose.x)
+            delta_y = lm.pt_glob.y - (robot_pose.y)
             # Transform to local robot coordinates
             # Rotation by -robot_pose.theta to align with robot's current orientation
-            lx = dx * math.cos(-robot_pose.theta) - dy * math.sin(-robot_pose.theta)
-            ly = dx * math.sin(-robot_pose.theta) + dy * math.cos(-robot_pose.theta)
+            lx = delta_x * math.cos(-robot_pose.theta) - delta_y * math.sin(-robot_pose.theta)
+            ly = delta_x * math.sin(-robot_pose.theta) + delta_y * math.cos(-robot_pose.theta)
             lz = lm.pt_glob.z
 
 

@@ -25,7 +25,7 @@ class VisualSLAMCore:
         self.bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
         
         # Roboter-Pose & Index-Tracking
-        self.pose = State(x=0.0, y=0.0, theta=0.0)
+        self.alpha_pose = State(x=0.0, y=0.0, theta=0.0)
 
         # Anzahl der Frames, die nach einem Update übersprungen werden, um die Stabilität zu erhöhen (z.B. bei RANSAC-Updates)
         #self.frame_counter = self.slam.config.frame_counter
@@ -62,13 +62,13 @@ class VisualSLAMCore:
                 if self.config.min_depth < depth < self.config.max_depth: # filter out invalid depth values
                     kp_clean.append(point)
         else:
-            return False, self.pose, self.map_manager # skip processing if depth frame is not available
+            return False, self.alpha_pose, self.map_manager # skip processing if depth frame is not available
         
         # compute the descriptors with ORB
         kp_clean, des_clean = self.orb.compute(frame, kp_clean)
         
         if kp_clean is None or des_clean is None:
-            return False, self.pose, self.map_manager# skip processing if no valid keypoints/descriptors are found
+            return False, self.alpha_pose, self.map_manager# skip processing if no valid keypoints/descriptors are found
 
         # 3D coordinates calculation
         local_robot_pts_3d = self.algo.calculate_local_cords_from_matches(
@@ -109,7 +109,8 @@ class VisualSLAMCore:
 
         max_likelihood_robot = max(self.robots, key=lambda r: r.likelihood)
         print(f"Best robot ID: {max_likelihood_robot.id}, Max_Likelihood: {max_likelihood_robot.likelihood}")
-        self.pose = max_likelihood_robot.pose
+        
+        self.alpha_pose = max_likelihood_robot.pose
         best_map_manager = max_likelihood_robot.robot.map_manager
 
         # draw keypoints in green
@@ -117,4 +118,4 @@ class VisualSLAMCore:
         cv2.imshow("Feature + Depth", img2)
         cv2.waitKey(1)
             
-        return pose_updated, self.pose, best_map_manager
+        return pose_updated, self.alpha_pose, best_map_manager
