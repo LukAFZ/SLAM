@@ -12,16 +12,17 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 from .slam_core import VisualSLAMCore
+from .constants import State
 
 class SlamNode(Node):
     def __init__(self):
-        super().__init__('slam_node')
+        super().__init__('slam_node', parameter_overrides=[
+            rclpy.parameter.Parameter('use_sim_time', rclpy.parameter.Parameter.Type.BOOL, True)
+        ])
         self.bridge = CvBridge()
         
         # initialize SLAM core
         self.slam = VisualSLAMCore()
-        # Anzahl der Frames, die nach einem Update übersprungen werden, um die Stabilität zu erhöhen (z.B. bei RANSAC-Updates)
-        self.frame_counter = self.slam.config.frame_counter
 
         # Subscribe to RGB image topic
         self.subscription_rgb = self.create_subscription(
@@ -43,6 +44,10 @@ class SlamNode(Node):
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
+
+        # Anzahl der Frames, die nach einem Update übersprungen werden, um die Stabilität zu erhöhen (z.B. bei RANSAC-Updates)
+        self.frame_counter = self.slam.config.frame_counter
+        self.frame_index = 0
 
         self.kinect_to_base_matrix = None
         self.base_to_kinect_matrix = None
@@ -88,35 +93,41 @@ class SlamNode(Node):
     def listener_callback_rgb(self, msg):
         if not self.lookup_static_tf() or self.depth_frame is None:
             return
+        
+        if self.frame_counter <=0:
+            frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
 
-        frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
+            # Slam processing in slam_core.py
+            pose_updated, pose, best_map_manager = self.slam.process_frame(
+                frame, self.depth_frame, 
+                self.kinect_to_base_matrix, self.base_to_kinect_matrix, 
+                self.frame_index
+            )
 
-        # Slam processing in slam_core.py
-        pose_updated, rx, ry, rtheta, best_map_manager = self.slam.process_frame(
-            frame, self.depth_frame, 
-            self.kinect_to_base_matrix, self.base_to_kinect_matrix, 
-            self.frame_counter
-        )
+            if pose_updated:
+                # Publish TF and Odometry for visualization and downstream tasks
+                self.publish_tf(pose.x / 1000.0, pose.y / 1000.0, pose.theta, msg.header.stamp)
+                self.publish_robots_tf_array(self.slam.robots, msg.header.stamp)
+                self.publish_odometry_msg(pose.x / 1000.0, pose.y / 1000.0, pose.theta, msg.header.stamp)
+                self.frame_counter = self.slam.config.frame_counter
 
-        if pose_updated:
-            # Publish TF and Odometry for visualization and downstream tasks
-            self.publish_tf(rx / 1000.0, ry / 1000.0, rtheta)
-            self.publish_odometry_msg(rx / 1000.0, ry / 1000.0, rtheta)
-            self.frame_counter = self.slam.config.frame_counter
-
-        # Publish Landmarks as PointCloud2
-        header = std_msgs.msg.Header()
-        header.stamp = self.get_clock().now().to_msg()
-        header.frame_id = self.odom_frame
-        map_points = best_map_manager.get_all_points_for_msg()
-        if map_points:
-            self.pcl_publisher.publish(pcl2.create_cloud_xyz32(header, map_points))
+            # Publish Landmarks as PointCloud2
+            header = std_msgs.msg.Header()
+            header.stamp = self.get_clock().now().to_msg()
+            header.frame_id = self.odom_frame
+            map_points = best_map_manager.get_all_points_for_msg()
+            if map_points:
+                self.pcl_publisher.publish(pcl2.create_cloud_xyz32(header, map_points))
+        else:
+            print(f"Skipping frame {self.frame_index} to increase stability. Frame counter: {self.frame_counter}")
 
         self.frame_counter -= 1
+        self.frame_index += 1
+        print(f"Frame Index: {self.frame_index}, Frame Counter: {self.frame_counter}")
 
-    def publish_tf(self, x, y, theta):
+    def publish_tf(self, x, y, theta, stamp):
         t = TransformStamped()
-        t.header.stamp = self.get_clock().now().to_msg()
+        t.header.stamp = stamp
         t.header.frame_id = self.odom_frame
         t.child_frame_id = self.base_frame
 
@@ -134,11 +145,48 @@ class SlamNode(Node):
 
         self.tf_broadcaster.sendTransform(t)
 
-    def publish_odometry_msg(self, x, y, theta):
+    #virtuelle Roboter
+    def publish_robots_tf_array(self, robots_list, stamp):
+        # Eine leere Liste für alle Transformationen erstellen
+        tf_messages = []
+        current_time = self.get_clock().now().to_msg()
+
+        for robot in robots_list:
+            t = TransformStamped()
+            t.header.stamp = stamp if stamp is not None else current_time
+            t.header.frame_id = self.odom_frame
+            
+            # WICHTIG: Jedem Partikel einen eindeutigen Frame-Namen geben!
+            t.child_frame_id = f"virtual_robot_{robot.id}"
+
+            # Position setzen (Achtung: Falls deine Posen im Code in mm gerechnet werden, 
+            # musst du hier durch 1000.0 teilen. Wenn sie in Metern sind, lass das '/ 1000.0' weg!)
+            t.transform.translation.x = robot.pose.x / 1000.0
+            t.transform.translation.y = robot.pose.y / 1000.0
+            t.transform.translation.z = 0.0
+
+            # Rotation genau wie in deiner Vorlage berechnen
+            theta = robot.pose.theta
+            euler = Rotation.from_euler('z', float(theta))
+            quat = euler.as_quat(canonical=True)
+
+            t.transform.rotation.x = quat[0]
+            t.transform.rotation.y = quat[1]
+            t.transform.rotation.z = quat[2]
+            t.transform.rotation.w = quat[3]
+
+            # Nachricht an die Liste anhängen
+            tf_messages.append(t)
+
+        # Alle Transformationen gesammelt als Array/Liste absenden
+        if tf_messages:
+            self.tf_broadcaster.sendTransform(tf_messages)
+
+    def publish_odometry_msg(self, x, y, theta, stamp):
         msg = Odometry()
         
         # Header
-        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.stamp = stamp
         msg.header.frame_id = self.odom_frame
         
         # Child Frame ID

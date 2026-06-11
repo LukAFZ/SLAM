@@ -1,6 +1,7 @@
 import numpy as np
 import math
 from .config import configurations
+from .constants import Coordinate, State
 
 class algorithms:
 
@@ -51,7 +52,7 @@ class algorithms:
             if inlier_count > best_inlier_count:
                 
                 for e, p, q in zip(errors, P, Q):
-                    if e < threshold*1.25:
+                    if e < threshold:
                         P_second.append(p)
                         Q_second.append(q)
 
@@ -107,7 +108,7 @@ class algorithms:
 
         return local_robot_pts_3d
     
-    def test_only_for_visible_landmarks(self, map_landmarks, curr_pos_x, curr_pos_y, curr_theta, base_to_kinect_matrix):
+    def test_only_for_visible_landmarks(self, map_landmarks, robot_pose: State, base_to_kinect_matrix):
          
         visible_des = []
         visible_pts_glob_2d = []
@@ -115,15 +116,15 @@ class algorithms:
 
         for idx, lm in enumerate(map_landmarks):
             # Calculate relative landmark position to robot
-            dx = lm['pt_glob'][0] - (curr_pos_x)
-            dy = lm['pt_glob'][1] - (curr_pos_y)
+            delta_x = lm.pt_glob.x - (robot_pose.x)
+            delta_y = lm.pt_glob.y - (robot_pose.y)
             # Transform to local robot coordinates
-            # Rotation by -curr_theta to align with robot's current orientation
-            lx = dx * math.cos(-curr_theta) - dy * math.sin(-curr_theta)
-            ly = dx * math.sin(-curr_theta) + dy * math.cos(-curr_theta)
-            lz = lm['pt_glob'][2]
-            
-            
+            # Rotation by -robot_pose.theta to align with robot's current orientation
+            lx = delta_x * math.cos(-robot_pose.theta) - delta_y * math.sin(-robot_pose.theta)
+            ly = delta_x * math.sin(-robot_pose.theta) + delta_y * math.cos(-robot_pose.theta)
+            lz = lm.pt_glob.z
+
+
             pt_local_base = np.array([lx, ly, lz, 1.0])
             pt_cam = base_to_kinect_matrix @ pt_local_base
             
@@ -138,8 +139,8 @@ class algorithms:
                 v_p = (c_y * self.f) / c_z + self.cv
                 # Check if projected point is within image bounds
                 if 0 <= u_p <= self.kinect_width and 0 <= v_p <= self.kinect_height:
-                    visible_des.append(lm['des'])
-                    visible_pts_glob_2d.append(lm['pt_glob'][:2])
+                    visible_des.append(lm.des)
+                    visible_pts_glob_2d.append((lm.pt_glob.x, lm.pt_glob.y))
                     visible_map_indices.append(idx)
 
         return visible_des, visible_pts_glob_2d, visible_map_indices

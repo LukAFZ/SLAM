@@ -5,6 +5,14 @@ from .algorithms import algorithms
 from .config import configurations
 from .map_manager import MapManager
 from .robot import *
+from .constants import State
+
+@dataclass
+class Robots:
+    id: int
+    pose: State
+    robot: Robot
+    likelihood: float = 0.0
 
 class VisualSLAMCore:
     def __init__(self):
@@ -17,26 +25,28 @@ class VisualSLAMCore:
         self.bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
         
         # Roboter-Pose & Index-Tracking
-        self.curr_pos_x = 0.0
-        self.curr_pos_y = 0.0
-        self.curr_theta = 0.0
-        self.frame_index = 0
+        self.alpha_pose = State(x=0.0, y=0.0, theta=0.0)
+
+        # Anzahl der Frames, die nach einem Update übersprungen werden, um die Stabilität zu erhöhen (z.B. bei RANSAC-Updates)
+        #self.frame_counter = self.slam.config.frame_counter
+        #self.frame_index = 0
 
         self.robots = []
         self.num_robots = self.config.num_robots
         for N in range(self.num_robots):
-            self.robots.append({
-                'id': N,
-                'pose': np.array([0.0, 0.0, 0.0]), # x, y, theta
-                'robot': Robot(),
-                'likelihood': 0.0
-            }) 
+            self.robots.append(Robots(
+                id=N,
+                pose=State(x=0.0, y=0.0, theta=0.0),
+                robot=Robot(),
+                likelihood=0.0
+            ))
 
-    def process_frame(self, frame, depth_frame, kinect_to_base_matrix, base_to_kinect_matrix, frame_counter):
+    def process_frame(self, frame, depth_frame, kinect_to_base_matrix, base_to_kinect_matrix, frame_index):
         """
         compute the robot pose and update the map based on the current RGB and Depth frame, as well as the current pose estimation and the map state.
         return pose_updated, x, y, theta
         """
+        
         # find the keypoints with ORB
         kp = self.orb.detect(frame, None)
         
@@ -52,13 +62,13 @@ class VisualSLAMCore:
                 if self.config.min_depth < depth < self.config.max_depth: # filter out invalid depth values
                     kp_clean.append(point)
         else:
-            return False, self.curr_pos_x, self.curr_pos_y, self.curr_theta # skip processing if depth frame is not available
+            return False, self.alpha_pose, self.map_manager # skip processing if depth frame is not available
         
         # compute the descriptors with ORB
         kp_clean, des_clean = self.orb.compute(frame, kp_clean)
         
         if kp_clean is None or des_clean is None:
-            return False, self.curr_pos_x, self.curr_pos_y, self.curr_theta # skip processing if no valid keypoints/descriptors are found
+            return False, self.alpha_pose, self.map_manager# skip processing if no valid keypoints/descriptors are found
 
         # 3D coordinates calculation
         local_robot_pts_3d = self.algo.calculate_local_cords_from_matches(
@@ -69,32 +79,43 @@ class VisualSLAMCore:
         for robot in self.robots:
 
             #best robot selection to be implemented here
-            pose_updated, robot['pose'][0], robot['pose'][1], robot['pose'][2], log_r_l= robot['robot'].update_robot(kp_clean, des_clean, depth_frame, self.frame_index, frame_counter, kinect_to_base_matrix, base_to_kinect_matrix)
+            pose_updated, robot.pose, log_r_l = robot.robot.update_robot(kp_clean, des_clean, depth_frame, frame_index, base_to_kinect_matrix, local_robot_pts_3d)
+            #if len(des_clean) > 0:
+            #    log_r_l = log_r_l / len(des_clean) # normalize log likelihood by number of descriptors to avoid bias towards frames with more features
+            #else:
+            #    log_r_l = -700
             log_robot_likelihood.append(log_r_l)
+
 
         max_log_l = max(log_robot_likelihood)
 
+
+        #BERECHNUNG STIMMT NOCH NICHT
         # 2. Ziehe das Maximum ab, bevor du die Exponentialfunktion anwendest.
         # Das verschiebt den besten Partikel auf log(w) = 0 -> w = e^0 = 1.0.
-        # Alle anderen Partikel skalieren sich relativ dazu, was Underflows unmöglich macht!
         for idx, robot in enumerate(self.robots):
-            robot['likelihood'] = np.exp(log_robot_likelihood[idx] - max_log_l)
+            print(f"Robot ID: {robot.id}, Log_Likelihood-Maximum: {log_robot_likelihood[idx] - max_log_l}")
+            robot.likelihood = np.exp(log_robot_likelihood[idx] - max_log_l)
 
-        # 3. Jetzt wie gewohnt normalisieren, damit die Summe aller Gewichte 1 ergibt
-        total_weight = sum(robot['likelihood'] for robot in self.robots)
+        # 3. Normarlisieren, damit die Summe aller Gewichte 1 ergibt
+        total_weight = sum(robot.likelihood for robot in self.robots)
         if total_weight > 0:
             for robot in self.robots:
-                robot['likelihood'] /= total_weight
+                robot.likelihood /= total_weight
+        else:
+            # Falls alle Likelihoods 0 sind, setze sie gleichmäßig auf 1/N
+            for robot in self.robots:
+                robot.likelihood = 1.0 / self.num_robots
 
-        max_likelihood_robot = max(self.robots, key=lambda r: r['likelihood'])
-        self.curr_pos_x, self.curr_pos_y, self.curr_theta = max_likelihood_robot['pose']
-        best_map_manager = max_likelihood_robot['robot'].map_manager
-
+        max_likelihood_robot = max(self.robots, key=lambda r: r.likelihood)
+        print(f"Best robot ID: {max_likelihood_robot.id}, Max_Likelihood: {max_likelihood_robot.likelihood}")
+        
+        self.alpha_pose = max_likelihood_robot.pose
+        best_map_manager = max_likelihood_robot.robot.map_manager
 
         # draw keypoints in green
         img2 = cv2.drawKeypoints(frame, kp_clean, None, color=(0,255,0), flags=0)
         cv2.imshow("Feature + Depth", img2)
         cv2.waitKey(1)
-
-        self.frame_index += 1
-        return pose_updated, self.curr_pos_x, self.curr_pos_y, self.curr_theta, best_map_manager
+            
+        return pose_updated, self.alpha_pose, best_map_manager

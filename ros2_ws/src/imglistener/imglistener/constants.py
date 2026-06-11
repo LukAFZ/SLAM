@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 import numpy as np
-from math import pi, atan2
+from math import pi
 
 
 from dataclasses import dataclass
@@ -62,5 +62,3 @@ def normalize_angle(angle: float) -> float:
             angle += 2*pi
 
     return angle    
-
-
