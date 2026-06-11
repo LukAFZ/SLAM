@@ -41,7 +41,7 @@ class VisualSLAMCore:
                 likelihood=0.0
             ))
 
-    def process_frame(self, frame, depth_frame, kinect_to_base_matrix, base_to_kinect_matrix, frame_counter, frame_index):
+    def process_frame(self, frame, depth_frame, kinect_to_base_matrix, base_to_kinect_matrix, frame_index):
         """
         compute the robot pose and update the map based on the current RGB and Depth frame, as well as the current pose estimation and the map state.
         return pose_updated, x, y, theta

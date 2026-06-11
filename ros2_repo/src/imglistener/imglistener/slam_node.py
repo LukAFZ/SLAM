@@ -99,7 +99,7 @@ class SlamNode(Node):
             pose_updated, pose, best_map_manager = self.slam.process_frame(
                 frame, self.depth_frame, 
                 self.kinect_to_base_matrix, self.base_to_kinect_matrix, 
-                self.frame_counter, self.frame_index
+                self.frame_index
             )
 
             if pose_updated:
