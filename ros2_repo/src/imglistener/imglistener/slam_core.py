@@ -26,7 +26,10 @@ class VisualSLAMCore:
         
         # Roboter-Pose & Index-Tracking
         self.pose = State(x=0.0, y=0.0, theta=0.0)
-        self.frame_index = 0
+
+        # Anzahl der Frames, die nach einem Update übersprungen werden, um die Stabilität zu erhöhen (z.B. bei RANSAC-Updates)
+        #self.frame_counter = self.slam.config.frame_counter
+        #self.frame_index = 0
 
         self.robots = []
         self.num_robots = self.config.num_robots
@@ -38,11 +41,12 @@ class VisualSLAMCore:
                 likelihood=0.0
             ))
 
-    def process_frame(self, frame, depth_frame, kinect_to_base_matrix, base_to_kinect_matrix, frame_counter):
+    def process_frame(self, frame, depth_frame, kinect_to_base_matrix, base_to_kinect_matrix, frame_counter, frame_index):
         """
         compute the robot pose and update the map based on the current RGB and Depth frame, as well as the current pose estimation and the map state.
         return pose_updated, x, y, theta
         """
+        
         # find the keypoints with ORB
         kp = self.orb.detect(frame, None)
         
@@ -75,13 +79,14 @@ class VisualSLAMCore:
         for robot in self.robots:
 
             #best robot selection to be implemented here
-            pose_updated, robot.pose, log_r_l = robot.robot.update_robot(kp_clean, des_clean, depth_frame, self.frame_index, frame_counter, base_to_kinect_matrix, local_robot_pts_3d)
+            pose_updated, robot.pose, log_r_l = robot.robot.update_robot(kp_clean, des_clean, depth_frame, frame_index, base_to_kinect_matrix, local_robot_pts_3d)
             #if len(des_clean) > 0:
             #    log_r_l = log_r_l / len(des_clean) # normalize log likelihood by number of descriptors to avoid bias towards frames with more features
             #else:
             #    log_r_l = -700
-
             log_robot_likelihood.append(log_r_l)
+            print(f"Robot ID: {robot.id}, Log_Likelihood: {log_r_l}")
+
 
         max_log_l = max(log_robot_likelihood)
 
@@ -102,7 +107,7 @@ class VisualSLAMCore:
                 robot.likelihood = 1.0 / self.num_robots
 
         max_likelihood_robot = max(self.robots, key=lambda r: r.likelihood)
-        print(max_likelihood_robot.id, max_likelihood_robot.likelihood)
+        print(f"Best robot ID: {max_likelihood_robot.id}, Max_Likelihood: {max_likelihood_robot.likelihood}")
         self.pose = max_likelihood_robot.pose
         best_map_manager = max_likelihood_robot.robot.map_manager
 
@@ -110,6 +115,5 @@ class VisualSLAMCore:
         img2 = cv2.drawKeypoints(frame, kp_clean, None, color=(0,255,0), flags=0)
         cv2.imshow("Feature + Depth", img2)
         cv2.waitKey(1)
-
-        self.frame_index += 1
+            
         return pose_updated, self.pose, best_map_manager

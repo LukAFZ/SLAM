@@ -21,8 +21,6 @@ class SlamNode(Node):
         
         # initialize SLAM core
         self.slam = VisualSLAMCore()
-        # Anzahl der Frames, die nach einem Update übersprungen werden, um die Stabilität zu erhöhen (z.B. bei RANSAC-Updates)
-        self.frame_counter = self.slam.config.frame_counter
 
         # Subscribe to RGB image topic
         self.subscription_rgb = self.create_subscription(
@@ -44,6 +42,10 @@ class SlamNode(Node):
 
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
+
+        # Anzahl der Frames, die nach einem Update übersprungen werden, um die Stabilität zu erhöhen (z.B. bei RANSAC-Updates)
+        self.frame_counter = self.slam.config.frame_counter
+        self.frame_index = 0
 
         self.kinect_to_base_matrix = None
         self.base_to_kinect_matrix = None
@@ -89,32 +91,36 @@ class SlamNode(Node):
     def listener_callback_rgb(self, msg):
         if not self.lookup_static_tf() or self.depth_frame is None:
             return
+        
+        if self.frame_counter <=0:
+            frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
 
-        frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
+            # Slam processing in slam_core.py
+            pose_updated, pose, best_map_manager = self.slam.process_frame(
+                frame, self.depth_frame, 
+                self.kinect_to_base_matrix, self.base_to_kinect_matrix, 
+                self.frame_counter, self.frame_index
+            )
 
-        # Slam processing in slam_core.py
-        pose_updated, pose, best_map_manager = self.slam.process_frame(
-            frame, self.depth_frame, 
-            self.kinect_to_base_matrix, self.base_to_kinect_matrix, 
-            self.frame_counter
-        )
+            if pose_updated:
+                # Publish TF and Odometry for visualization and downstream tasks
+                self.publish_tf(pose.x / 1000.0, pose.y / 1000.0, pose.theta)
+                self.publish_robots_tf_array(self.slam.robots)
+                self.publish_odometry_msg(pose.x / 1000.0, pose.y / 1000.0, pose.theta)
+                self.frame_counter = self.slam.config.frame_counter
 
-        if pose_updated:
-            # Publish TF and Odometry for visualization and downstream tasks
-            self.publish_tf(pose.x / 1000.0, pose.y / 1000.0, pose.theta)
-            self.publish_robots_tf_array(self.slam.robots)
-            self.publish_odometry_msg(pose.x / 1000.0, pose.y / 1000.0, pose.theta)
-            self.frame_counter = self.slam.config.frame_counter
-
-        # Publish Landmarks as PointCloud2
-        header = std_msgs.msg.Header()
-        header.stamp = self.get_clock().now().to_msg()
-        header.frame_id = self.odom_frame
-        map_points = best_map_manager.get_all_points_for_msg()
-        if map_points:
-            self.pcl_publisher.publish(pcl2.create_cloud_xyz32(header, map_points))
+            # Publish Landmarks as PointCloud2
+            header = std_msgs.msg.Header()
+            header.stamp = self.get_clock().now().to_msg()
+            header.frame_id = self.odom_frame
+            map_points = best_map_manager.get_all_points_for_msg()
+            if map_points:
+                self.pcl_publisher.publish(pcl2.create_cloud_xyz32(header, map_points))
+        else:
+            print(f"Skipping frame {self.frame_index} to increase stability. Frame counter: {self.frame_counter}")
 
         self.frame_counter -= 1
+        self.frame_index += 1
 
     def publish_tf(self, x, y, theta):
         t = TransformStamped()

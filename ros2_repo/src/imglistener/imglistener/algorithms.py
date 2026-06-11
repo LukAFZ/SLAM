@@ -52,7 +52,7 @@ class algorithms:
             if inlier_count > best_inlier_count:
                 
                 for e, p, q in zip(errors, P, Q):
-                    if e < threshold*1.25:
+                    if e < threshold:
                         P_second.append(p)
                         Q_second.append(q)
 

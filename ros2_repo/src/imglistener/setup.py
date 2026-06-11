@@ -24,7 +24,7 @@ setup(
     },
     entry_points={
         'console_scripts': [
-            'imglistener = imglistener.imglistener:main'
+            'slam_node = imglistener.slam_node:main'
         ],
     },
 )
