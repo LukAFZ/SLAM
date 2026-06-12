@@ -16,7 +16,9 @@ from .constants import State
 
 class SlamNode(Node):
     def __init__(self):
-        super().__init__('slam_node')
+        super().__init__('slam_node', parameter_overrides=[
+            rclpy.parameter.Parameter('use_sim_time', rclpy.parameter.Parameter.Type.BOOL, True)
+        ])
         self.bridge = CvBridge()
         
         # initialize SLAM core
@@ -104,9 +106,9 @@ class SlamNode(Node):
 
             if pose_updated:
                 # Publish TF and Odometry for visualization and downstream tasks
-                self.publish_tf(pose.x / 1000.0, pose.y / 1000.0, pose.theta)
-                self.publish_robots_tf_array(self.slam.robots)
-                self.publish_odometry_msg(pose.x / 1000.0, pose.y / 1000.0, pose.theta)
+                self.publish_tf(pose.x / 1000.0, pose.y / 1000.0, pose.theta, msg.header.stamp)
+                self.publish_robots_tf_array(self.slam.robots, msg.header.stamp)
+                self.publish_odometry_msg(pose.x / 1000.0, pose.y / 1000.0, pose.theta, msg.header.stamp)
                 self.frame_counter = self.slam.config.frame_counter
 
             # Publish Landmarks as PointCloud2
@@ -123,9 +125,9 @@ class SlamNode(Node):
         self.frame_index += 1
         print(f"Frame Index: {self.frame_index}, Frame Counter: {self.frame_counter}")
 
-    def publish_tf(self, x, y, theta):
+    def publish_tf(self, x, y, theta, stamp):
         t = TransformStamped()
-        t.header.stamp = self.get_clock().now().to_msg()
+        t.header.stamp = stamp
         t.header.frame_id = self.odom_frame
         t.child_frame_id = self.base_frame
 
@@ -144,14 +146,14 @@ class SlamNode(Node):
         self.tf_broadcaster.sendTransform(t)
 
     #virtuelle Roboter
-    def publish_robots_tf_array(self, robots_list):
+    def publish_robots_tf_array(self, robots_list, stamp):
         # Eine leere Liste für alle Transformationen erstellen
         tf_messages = []
         current_time = self.get_clock().now().to_msg()
 
         for robot in robots_list:
             t = TransformStamped()
-            t.header.stamp = current_time
+            t.header.stamp = stamp if stamp is not None else current_time
             t.header.frame_id = self.odom_frame
             
             # WICHTIG: Jedem Partikel einen eindeutigen Frame-Namen geben!
@@ -180,11 +182,11 @@ class SlamNode(Node):
         if tf_messages:
             self.tf_broadcaster.sendTransform(tf_messages)
 
-    def publish_odometry_msg(self, x, y, theta):
+    def publish_odometry_msg(self, x, y, theta, stamp):
         msg = Odometry()
         
         # Header
-        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.stamp = stamp
         msg.header.frame_id = self.odom_frame
         
         # Child Frame ID
