@@ -37,7 +37,7 @@ class VisualSLAMCore:
             self.robots.append(Robots(
                 id=N,
                 pose=State(x=0.0, y=0.0, theta=0.0),
-                robot=Robot(),
+                robot_object=Robot(),
                 likelihood=0.0
             ))
 
@@ -76,10 +76,10 @@ class VisualSLAMCore:
         )
 
         log_robot_likelihood = []
-        for robot in self.robots:
+        for selected_robot in self.robots:
 
             #best robot selection to be implemented here
-            pose_updated, robot.pose, log_r_l = robot.robot.update_robot(kp_clean, des_clean, depth_frame, frame_index, base_to_kinect_matrix, local_robot_pts_3d)
+            pose_updated, selected_robot.pose, log_r_l = selected_robot.robot_object.update_robot(kp_clean, des_clean, depth_frame, frame_index, base_to_kinect_matrix, local_robot_pts_3d)
             #if len(des_clean) > 0:
             #    log_r_l = log_r_l / len(des_clean) # normalize log likelihood by number of descriptors to avoid bias towards frames with more features
             #else:
@@ -109,9 +109,10 @@ class VisualSLAMCore:
 
         max_likelihood_robot = max(self.robots, key=lambda r: r.likelihood)
         print(f"Best robot ID: {max_likelihood_robot.id}, Max_Likelihood: {max_likelihood_robot.likelihood}")
-        
+
         self.alpha_pose = max_likelihood_robot.pose
         best_map_manager = max_likelihood_robot.robot.map_manager
+        pose_updated = True
 
         # draw keypoints in green
         img2 = cv2.drawKeypoints(frame, kp_clean, None, color=(0,255,0), flags=0)

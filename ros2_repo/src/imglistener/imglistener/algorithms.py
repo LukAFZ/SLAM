@@ -18,6 +18,14 @@ class algorithms:
         self.min_depth = self.config.min_depth
         self.max_depth = self.config.max_depth
 
+    def transform_local_robot_coords_to_odom(self, coords: Coordinate, robot_pose: State):
+        cos_c = math.cos(robot_pose.theta)
+        sin_c = math.sin(robot_pose.theta)
+        tx_odom =  coords.x * cos_c - coords.y * sin_c
+        ty_odom =  coords.x * sin_c + coords.y * cos_c
+        
+        return tx_odom, ty_odom
+
     def ransac_refinement(self, P, Q):
         
         max_iterations = self.ransac_iterations
