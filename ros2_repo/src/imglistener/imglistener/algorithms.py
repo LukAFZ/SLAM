@@ -18,16 +18,45 @@ class algorithms:
         self.min_depth = self.config.min_depth
         self.max_depth = self.config.max_depth
 
-    def transform_local_robot_coords_to_odom(self, coords: Coordinate, robot_pose: State):
+    def matrix_from_local_robot_to_odom_coords(self, coords: Coordinate, robot_pose: State):
+        """
+        Transformiere die Lokalen Roboter-Koordinaten in das Odom System
+        """
         cos_c = math.cos(robot_pose.theta)
         sin_c = math.sin(robot_pose.theta)
-        tx_odom =  coords.x * cos_c - coords.y * sin_c
-        ty_odom =  coords.x * sin_c + coords.y * cos_c
+        tx_odom = coords.x * cos_c - coords.y * sin_c
+        ty_odom = coords.x * sin_c + coords.y * cos_c
         
         return tx_odom, ty_odom
 
-    def ransac_refinement(self, P, Q):
+
+    def matrix_from_odom_to_local_robot_coords(self, coords: Coordinate, robot_pose: State):
+        """
+        Transformiere die Odom Koordinaten in das Lokale Robotersystem
+        """
+        #Negatives Theta, da Ruecktransformation zu Roboter Koordinaten
+        cos_c = math.cos(-robot_pose.theta)
+        sin_c = math.sin(-robot_pose.theta)
+        lx_odom = coords.x * cos_c - coords.y * sin_c
+        ly_odom = coords.x * sin_c + coords.y * cos_c
         
+        return lx_odom, ly_odom
+
+
+    def transform_delta_odom_to_local_robot_coords(self, coords: Coordinate, robot_pose: State):
+        """
+        Berechne das Delta von Coordinate zu Roboterposition und
+        Transformiere die Odom koordinaten in das Lokale Robotersystem
+        """
+        delta_x = coords.x - robot_pose.x
+        delta_y = coords.y - robot_pose.y
+        
+        return self.matrix_from_odom_to_local_robot_coords(Coordinate(delta_x, delta_y, z=0), robot_pose)
+
+    def ransac_refinement(self, P, Q):
+        """
+        Ransac-Algorithmus für den Kabsch-Algorithmus
+        """
         max_iterations = self.ransac_iterations
         threshold = self.ransac_threshold
         best_rotation = None
@@ -70,8 +99,10 @@ class algorithms:
                 
         return best_rotation, best_translation, best_theta
     
-    def get_kapsch_2d(self, P, Q):    
-
+    def get_kapsch_2d(self, P, Q):  
+        """
+        Kapsch-Algorithmus um auf Basis der Landmarks von Frame-zu-Frame das Delta der Roboterposition zu berechnen
+        """ 
         # Calculate the centroids of P and Q
         P_middle = np.mean(P, axis=0) #p_quer
         Q_middle = np.mean(Q, axis=0) #q_quer
@@ -94,6 +125,9 @@ class algorithms:
         return Rotation_matrix, Translation, theta
     
     def calculate_local_cords_from_matches(self, kp_clean, des_clean, kinect_to_base_matrix, depth_frame):
+        """
+        Berechne die Koordinaten der Landmarks anhand des Strahlensatzes
+        """
         #current_points_3d = []
         #current_descriptors = []
         local_robot_pts_3d = []
@@ -117,21 +151,19 @@ class algorithms:
         return local_robot_pts_3d
     
     def test_only_for_visible_landmarks(self, map_landmarks, robot_pose: State, base_to_kinect_matrix):
-         
+        """
+        Gibt nur die Landmarks zurück, die im Sichtfeld des Roboters liegen
+        """ 
         visible_des = []
         visible_pts_glob_2d = []
         visible_map_indices = []
 
         for idx, lm in enumerate(map_landmarks):
-            # Calculate relative landmark position to robot
-            delta_x = lm.pt_glob.x - (robot_pose.x)
-            delta_y = lm.pt_glob.y - (robot_pose.y)
-            # Transform to local robot coordinates
-            # Rotation by -robot_pose.theta to align with robot's current orientation
-            lx = delta_x * math.cos(-robot_pose.theta) - delta_y * math.sin(-robot_pose.theta)
-            ly = delta_x * math.sin(-robot_pose.theta) + delta_y * math.cos(-robot_pose.theta)
-            lz = lm.pt_glob.z
 
+            # Calculate relative landmark position to robot
+            # Transform to local robot coordinates
+            lx, ly = self.transform_delta_odom_to_local_robot_coords(Coordinate(lm.pt_glob.x, lm.pt_glob.y, z=0), robot_pose)
+            lz = lm.pt_glob.z
 
             pt_local_base = np.array([lx, ly, lz, 1.0])
             pt_cam = base_to_kinect_matrix @ pt_local_base

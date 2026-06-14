@@ -37,7 +37,7 @@ class VisualSLAMCore:
             self.robots.append(Robots(
                 id=N,
                 pose=State(x=0.0, y=0.0, theta=0.0),
-                robot_object=Robot(),
+                robot=Robot(),
                 likelihood=0.0
             ))
 
@@ -79,7 +79,7 @@ class VisualSLAMCore:
         for selected_robot in self.robots:
 
             #best robot selection to be implemented here
-            pose_updated, selected_robot.pose, log_r_l = selected_robot.robot_object.update_robot(kp_clean, des_clean, depth_frame, frame_index, base_to_kinect_matrix, local_robot_pts_3d)
+            pose_updated, selected_robot.pose, log_r_l = selected_robot.robot.update_robot(kp_clean, des_clean, depth_frame, frame_index, base_to_kinect_matrix, local_robot_pts_3d)
             #if len(des_clean) > 0:
             #    log_r_l = log_r_l / len(des_clean) # normalize log likelihood by number of descriptors to avoid bias towards frames with more features
             #else:

@@ -93,7 +93,6 @@ class SlamNode(Node):
     def listener_callback_rgb(self, msg):
         if not self.lookup_static_tf() or self.depth_frame is None:
             return
-        
         if self.frame_counter <=0:
             frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
 
@@ -103,14 +102,16 @@ class SlamNode(Node):
                 self.kinect_to_base_matrix, self.base_to_kinect_matrix, 
                 self.frame_index
             )
-
+            
             if pose_updated:
+                print(f"Pose aktualisiert: x={pose.x:.2f} mm, y={pose.y:.2f} mm, theta={pose.theta:.2f} rad")
                 # Publish TF and Odometry for visualization and downstream tasks
                 self.publish_tf(pose.x / 1000.0, pose.y / 1000.0, pose.theta, msg.header.stamp)
                 self.publish_robots_tf_array(self.slam.robots, msg.header.stamp)
                 self.publish_odometry_msg(pose.x / 1000.0, pose.y / 1000.0, pose.theta, msg.header.stamp)
                 self.frame_counter = self.slam.config.frame_counter
-
+            else:
+                print("Kein Posen-Update")
             # Publish Landmarks as PointCloud2
             header = std_msgs.msg.Header()
             header.stamp = self.get_clock().now().to_msg()

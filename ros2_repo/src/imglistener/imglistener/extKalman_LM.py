@@ -72,8 +72,8 @@ class ExtKalman:
     # return measurement prediction (\hat z_{t|t-1})
     def predictMeasurement(self, rob_curr, c, s):
         #Rechnung Matrix R_T * (Aktuelle Landmarkenposition - Roboterposition)
-		#R = ([[c ,  -s, 0.0],       ([])
-		#     [s  ,   c, 0.0],   ^T * 
+		#R = ([[c ,  -s, 0.0],       
+		#     [s  ,   c, 0.0],   ^T 
 	    #	  [0.0, 0.0, 1.0]])
 
         pmeas = np.array([c*(self.x[0]-rob_curr[0])+s*(self.x[1]-rob_curr[1]),

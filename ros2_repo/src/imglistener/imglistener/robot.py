@@ -33,13 +33,16 @@ class Robot():
         self.algorithmen = algorithms()
 
     def update_robot(self, kp_clean, des_clean, depth_frame, frame_index, base_to_kinect_matrix, local_robot_pts_3d):
-
+        """
+        Updaten eines Roboters basierend auf dem aktuellen Frame und der Karte mithilfe von Ransac, Kapschen Algorithmus und EKF-Updates für Landmarken.
+        """
         # Initial map creation
         if self.map_manager.is_empty():
             self.map_manager.initialize_map(local_robot_pts_3d, des_clean, frame_index)
  
 
         # Viewing Cone / Frustum Culling
+        #RECHNEN in ROBOTER KOORDINATEN
         visible_des, visible_pts_glob_2d, visible_map_indices = self.algorithmen.test_only_for_visible_landmarks(self.map_manager.landmarks, self.pose, base_to_kinect_matrix)
         
         delta_R = None
@@ -58,18 +61,12 @@ class Robot():
                 matched_curr_indices = set()
                 #visible_landmarks = []
 
-                cos_t = math.cos(-self.pose.theta)
-                sin_t = math.sin(-self.pose.theta)
-
                 for match in matches:
                     map_idx = visible_map_indices[match.queryIdx]
                     pt_glob = visible_pts_glob_2d[match.queryIdx]
 
                     # transform global landmark position to local robot coordinates for the matched landmark
-                    dx = pt_glob[0] - self.pose.x
-                    dy = pt_glob[1] - self.pose.y
-                    lx =  dx * cos_t - dy * sin_t
-                    ly =  dx * sin_t + dy * cos_t
+                    lx, ly = self.algorithmen.transform_delta_odom_to_local_robot_coords(Coordinate(pt_glob[0], pt_glob[1], z=0), self.pose)
 
                     P_local.append([lx, ly])
                     Q_curr.append(local_robot_pts_3d[match.trainIdx][:2])
@@ -86,16 +83,10 @@ class Robot():
                 # ransac refinement to get robust transformation estimation
                 delta_R, delta_t, delta_theta = self.algorithmen.ransac_refinement(np.array(P_local), np.array(Q_curr))
 
-
+                #RECHNEN in ODOM
                 if delta_R is not None:
-                    #z_x = 0.0
-                    #z_y = 0.0
-                    #z_theta = 0.0
-                    # relative transformation in local robot coordinates to odom frame
-                    cos_c = math.cos(self.pose.theta)
-                    sin_c = math.sin(self.pose.theta)
-                    delta_tx_odom =  delta_t[0] * cos_c - delta_t[1] * sin_c
-                    delta_ty_odom =  delta_t[0] * sin_c + delta_t[1] * cos_c
+                    # relative transformation from local robot coordinates to odom frame
+                    delta_tx_odom, delta_ty_odom = self.algorithmen.matrix_from_local_robot_to_odom_coords(Coordinate(delta_t[0], delta_t[1], z=0), self.pose)
 
                     sigma_x = self.config.sigma_x
                     sigma_y = self.config.sigma_y
