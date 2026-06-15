@@ -2,7 +2,15 @@ class configurations():
 
     def __init__(self):
 
-        self.num_robots = 2 #Anzahl virueller Roboter, die gleichzeitig in der Karte verfolgt werden sollen
+        #Puffer Size für die ROS Subscriber und Publisher
+        self.puffer_size = 10
+        #Subscritption Paths
+        self.rgb_topic = '/serf01/nav_rgbd_1/rgb/image_raw'
+        self.depth_topic = '/serf01/nav_rgbd_1/depth/image_raw'
+        self.pcl_topic = '/serf01/nav_rgbd_1/pointcloud'
+        self.odom_topic = '/serf01/odometry/project_slam'
+
+        self.num_robots = 1 #Anzahl virueller Roboter, die gleichzeitig in der Karte verfolgt werden sollen
 
         # Ransac Configuration
         self.ransac_iterations = 100 # Anzahl der Iterationen für RANSAC

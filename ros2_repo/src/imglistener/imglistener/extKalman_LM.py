@@ -78,7 +78,7 @@ class ExtKalman:
 
         pmeas = np.array([c*(self.x[0]-rob_curr[0])+s*(self.x[1]-rob_curr[1]),
                          -s*(self.x[0]-rob_curr[0])+c*(self.x[1]-rob_curr[1]),
-                         self.x[2]                 -rob_curr[2]])
+                         self.x[2]                 -0]) # rob_curr[2] (Winkel des Roboters) !!! 
         return pmeas
     
     # return matrix K

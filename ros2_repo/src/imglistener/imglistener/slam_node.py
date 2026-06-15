@@ -12,40 +12,46 @@ import numpy as np
 from scipy.spatial.transform import Rotation
 
 from .slam_core import VisualSLAMCore
-from .constants import State
+from .config import configurations
+
 
 class SlamNode(Node):
     def __init__(self):
         super().__init__('slam_node', parameter_overrides=[
             rclpy.parameter.Parameter('use_sim_time', rclpy.parameter.Parameter.Type.BOOL, True)
         ])
+        #import configurations
+        self.config = configurations()
+
+        # Initialize CvBridge for converting ROS images to OpenCV format
         self.bridge = CvBridge()
         
         # initialize SLAM core
         self.slam = VisualSLAMCore()
 
-        # Subscribe to RGB image topic
+        # Subscribe to RGB image topic with puffer-size 10
         self.subscription_rgb = self.create_subscription(
-            Image, '/serf01/nav_rgbd_1/rgb/image_raw', self.listener_callback_rgb, 10
+            Image, self.config.rgb_topic, self.listener_callback_rgb, self.config.puffer_size
         )
-        # Subscribe to depth image topic
+        # Subscribe to depth image topic with puffer-size 10
         self.subscription_depth = self.create_subscription(
-            Image, '/serf01/nav_rgbd_1/depth/image_raw', self.listener_callback_depth, 10
+            Image, self.config.depth_topic, self.listener_callback_depth, self.config.puffer_size
         )
-        # Publisher for 3D pointcloud
-        self.pcl_publisher = self.create_publisher(PointCloud2, '/serf01/nav_rgbd_1/pointcloud', 10)
-        # Odometry Publisher
-        self.odom_publisher = self.create_publisher(Odometry, '/serf01/odometry/project_slam', 10)
+        # Publisher for 3D pointcloud with puffer-size 10
+        self.pcl_publisher = self.create_publisher(PointCloud2, self.config.pcl_topic, self.config.puffer_size)
+        # Odometry Publisher with puffer-size 10
+        self.odom_publisher = self.create_publisher(Odometry, self.config.odom_topic, self.config.puffer_size)
 
         # TF initialization
         self.tf_broadcaster = TransformBroadcaster(self)
         self.odom_frame = 'odom'
         self.base_frame = 'base_link'
 
+        # For TF listening
         self.tf_buffer = Buffer()
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
-        # Anzahl der Frames, die nach einem Update übersprungen werden, um die Stabilität zu erhöhen (z.B. bei RANSAC-Updates)
+        # Counter of frames to skip after an update to increase stability (e.g., after RANSAC updates)
         self.frame_counter = self.slam.config.frame_counter
         self.frame_index = 0
 
@@ -58,7 +64,7 @@ class SlamNode(Node):
         # Initialize the transformation matrix if not already done
         if self.kinect_to_base_matrix is None:
             try:
-                # get TF from kinect_depth to base_link
+                # get TF from kinect_depth to base_link from the TF buffer
                 t = self.tf_buffer.lookup_transform(
                     self.base_frame, 
                     'kinect_depth', 
@@ -88,27 +94,31 @@ class SlamNode(Node):
         return True
 
     def listener_callback_depth(self, msg):
+        # save depth frame for use in the RGB callback, convert to OpenCV format
         self.depth_frame = self.bridge.imgmsg_to_cv2(msg, 'passthrough')
 
     def listener_callback_rgb(self, msg):
         if not self.lookup_static_tf() or self.depth_frame is None:
+            #implement solution if fail
             return
+        # Count to zero after an update to skip frames for stability
         if self.frame_counter <=0:
+            # Convert ROS image message to OpenCV format
             frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
 
             # Slam processing in slam_core.py
-            pose_updated, pose, best_map_manager = self.slam.process_frame(
+            pose_updated, best_pose, best_map_manager = self.slam.process_frame(
                 frame, self.depth_frame, 
                 self.kinect_to_base_matrix, self.base_to_kinect_matrix, 
                 self.frame_index
             )
             
             if pose_updated:
-                print(f"Pose aktualisiert: x={pose.x:.2f} mm, y={pose.y:.2f} mm, theta={pose.theta:.2f} rad")
+                print(f"Pose aktualisiert: x={best_pose.x:.2f} mm, y={best_pose.y:.2f} mm, theta={best_pose.theta:.2f} rad")
                 # Publish TF and Odometry for visualization and downstream tasks
-                self.publish_tf(pose.x / 1000.0, pose.y / 1000.0, pose.theta, msg.header.stamp)
+                self.publish_tf(best_pose.x / 1000.0, best_pose.y / 1000.0, best_pose.theta, msg.header.stamp)
                 self.publish_robots_tf_array(self.slam.robots, msg.header.stamp)
-                self.publish_odometry_msg(pose.x / 1000.0, pose.y / 1000.0, pose.theta, msg.header.stamp)
+                self.publish_odometry_msg(best_pose.x / 1000.0, best_pose.y / 1000.0, best_pose.theta, msg.header.stamp)
                 self.frame_counter = self.slam.config.frame_counter
             else:
                 print("Kein Posen-Update")
@@ -139,6 +149,7 @@ class SlamNode(Node):
         euler = Rotation.from_euler('z', float(theta))
         quat = euler.as_quat(canonical=True)
 
+        #Convert to ROS Quaternion format
         t.transform.rotation.x = quat[0]
         t.transform.rotation.y = quat[1]
         t.transform.rotation.z = quat[2]
@@ -171,6 +182,7 @@ class SlamNode(Node):
             euler = Rotation.from_euler('z', float(theta))
             quat = euler.as_quat(canonical=True)
 
+            # Convert to ROS Quaternion format
             t.transform.rotation.x = quat[0]
             t.transform.rotation.y = quat[1]
             t.transform.rotation.z = quat[2]

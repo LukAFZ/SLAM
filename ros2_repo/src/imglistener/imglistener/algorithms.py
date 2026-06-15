@@ -1,7 +1,7 @@
 import numpy as np
 import math
 from .config import configurations
-from .constants import Coordinate, State
+from .data_types import Coordinate, RobotOdom2D
 
 class algorithms:
 
@@ -18,9 +18,9 @@ class algorithms:
         self.min_depth = self.config.min_depth
         self.max_depth = self.config.max_depth
 
-    def matrix_from_local_robot_to_odom_coords(self, coords: Coordinate, robot_pose: State):
+    def matrix_from_local_robot_to_odom_coords(self, coords: Coordinate, robot_pose: RobotOdom2D):
         """
-        Transformiere die Lokalen Roboter-Koordinaten in das Odom System
+        Transform local robot coordinates to odom coordinates
         """
         cos_c = math.cos(robot_pose.theta)
         sin_c = math.sin(robot_pose.theta)
@@ -30,9 +30,9 @@ class algorithms:
         return tx_odom, ty_odom
 
 
-    def matrix_from_odom_to_local_robot_coords(self, coords: Coordinate, robot_pose: State):
+    def matrix_from_odom_to_local_robot_coords(self, coords: Coordinate, robot_pose: RobotOdom2D):
         """
-        Transformiere die Odom Koordinaten in das Lokale Robotersystem
+        Transform odom coordinates to local robot coordinates
         """
         #Negatives Theta, da Ruecktransformation zu Roboter Koordinaten
         cos_c = math.cos(-robot_pose.theta)
@@ -43,10 +43,9 @@ class algorithms:
         return lx_odom, ly_odom
 
 
-    def transform_delta_odom_to_local_robot_coords(self, coords: Coordinate, robot_pose: State):
+    def transform_delta_odom_to_local_robot_coords(self, coords: Coordinate, robot_pose: RobotOdom2D):
         """
-        Berechne das Delta von Coordinate zu Roboterposition und
-        Transformiere die Odom koordinaten in das Lokale Robotersystem
+        Calculate the delta from Coordinate to robot position and transform the odom coordinates to the local robot system
         """
         delta_x = coords.x - robot_pose.x
         delta_y = coords.y - robot_pose.y
@@ -55,7 +54,8 @@ class algorithms:
 
     def ransac_refinement(self, P, Q):
         """
-        Ransac-Algorithmus für den Kabsch-Algorithmus
+        Ransac algorithm for Kabsch algorithm to refine the transformation estimation by iteratively selecting random subsets of points, 
+        estimating the transformation, and counting inliers based on a distance threshold.
         """
         max_iterations = self.ransac_iterations
         threshold = self.ransac_threshold
@@ -101,7 +101,8 @@ class algorithms:
     
     def get_kapsch_2d(self, P, Q):  
         """
-        Kapsch-Algorithmus um auf Basis der Landmarks von Frame-zu-Frame das Delta der Roboterposition zu berechnen
+        Kapsch-Algrithm to calculate the transformation between two sets of 2D points (P and Q) by computing the centroids, centering the points, 
+        calculating the rotation angle, and deriving the rotation matrix and translation vector.
         """ 
         # Calculate the centroids of P and Q
         P_middle = np.mean(P, axis=0) #p_quer
@@ -126,7 +127,7 @@ class algorithms:
     
     def calculate_local_cords_from_matches(self, kp_clean, des_clean, kinect_to_base_matrix, depth_frame):
         """
-        Berechne die Koordinaten der Landmarks anhand des Strahlensatzes
+        Calculates the local coordinates of the landmarks based on the depth values and the camera intrinsics using the pinhole camera model and transforms them to the robot's local coordinate system.
         """
         #current_points_3d = []
         #current_descriptors = []
@@ -150,9 +151,9 @@ class algorithms:
 
         return local_robot_pts_3d
     
-    def test_only_for_visible_landmarks(self, map_landmarks, robot_pose: State, base_to_kinect_matrix):
+    def test_only_for_visible_landmarks(self, map_landmarks, robot_pose: RobotOdom2D, base_to_kinect_matrix):
         """
-        Gibt nur die Landmarks zurück, die im Sichtfeld des Roboters liegen
+        Giving back only the landmarks that are in the field of view of the robot
         """ 
         visible_des = []
         visible_pts_glob_2d = []
@@ -172,7 +173,7 @@ class algorithms:
             c_y = pt_cam[1]
             c_z = pt_cam[2]
             
-            #Prüfe, ob der Punkt vor der Kamera liegt und innerhalb des gültigen Tiefenbereichs liegt
+            #Check if the point is in front of the camera and within the valid depth range, then project to 2D image plane and check if it's within the image bounds
             if 0 < c_z < self.max_depth: # In front of camera and in valid depth range
                 # Project to 2D image plane with pinhole camera model
                 u_p = (c_x * self.f) / c_z + self.cu

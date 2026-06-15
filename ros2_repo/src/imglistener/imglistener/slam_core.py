@@ -5,12 +5,12 @@ from .algorithms import algorithms
 from .config import configurations
 from .map_manager import MapManager
 from .robot import *
-from .constants import State
+from .data_types import RobotOdom2D
 
 @dataclass
 class Robots:
     id: int
-    pose: State
+    pose: RobotOdom2D
     robot: Robot
     likelihood: float = 0.0
 
@@ -25,7 +25,7 @@ class VisualSLAMCore:
         self.bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
         
         # Roboter-Pose & Index-Tracking
-        self.alpha_pose = State(x=0.0, y=0.0, theta=0.0)
+        self.best_pose = RobotOdom2D(x=0.0, y=0.0, theta=0.0)
 
         # Anzahl der Frames, die nach einem Update übersprungen werden, um die Stabilität zu erhöhen (z.B. bei RANSAC-Updates)
         #self.frame_counter = self.slam.config.frame_counter
@@ -33,44 +33,46 @@ class VisualSLAMCore:
 
         self.robots = []
         self.num_robots = self.config.num_robots
+        if self.num_robots <= 0:
+            self.num_robots = 1 # mindestens ein Roboter, um die Karte zu erstellen
         for N in range(self.num_robots):
             self.robots.append(Robots(
                 id=N,
-                pose=State(x=0.0, y=0.0, theta=0.0),
+                pose=RobotOdom2D(x=0.0, y=0.0, theta=0.0),
                 robot=Robot(),
                 likelihood=0.0
             ))
 
     def process_frame(self, frame, depth_frame, kinect_to_base_matrix, base_to_kinect_matrix, frame_index):
         """
-        compute the robot pose and update the map based on the current RGB and Depth frame, as well as the current pose estimation and the map state.
-        return pose_updated, x, y, theta
+        Berechnung der Pose des Roboters und Aktualisierung der Karte basierend auf dem aktuellen RGB- und Tiefenbild, sowie der aktuellen Pose-Schätzung und dem Kartenstatus.
+        Rückgabe von pose_updated, x, y, theta
         """
         
         # find the keypoints with ORB
         kp = self.orb.detect(frame, None)
         
         kp_clean = []
-        # if depth frame is available, overlay depth info on keypoints
+        # if depth frame is available, filter keypoints based on depth values to remove outliers and points that are too close or too far
         if depth_frame is not None:
             # cycle through keypoints
             for point in kp:
-                # get x,y coordinates of keypoint
+                # get x,y coordinates of keypoint in pixel space
                 x, y = int(point.pt[0]), int(point.pt[1])
                 # get depth value at keypoint location and convert to meters
                 depth = depth_frame[y, x]
                 if self.config.min_depth < depth < self.config.max_depth: # filter out invalid depth values
                     kp_clean.append(point)
         else:
-            return False, self.alpha_pose, self.map_manager # skip processing if depth frame is not available
+            return False, self.best_pose, self.map_manager # skip processing if depth frame is not available
         
-        # compute the descriptors with ORB
+        # compute the descriptors with ORB only for the filtered keypoints
         kp_clean, des_clean = self.orb.compute(frame, kp_clean)
         
         if kp_clean is None or des_clean is None:
-            return False, self.alpha_pose, self.map_manager# skip processing if no valid keypoints/descriptors are found
+            return False, self.best_pose, self.map_manager# skip processing if no valid keypoints/descriptors are found
 
-        # 3D coordinates calculation
+        # 3D coordinates calculation from perspective of the robot based on the depth values and the camera intrinsics
         local_robot_pts_3d = self.algo.calculate_local_cords_from_matches(
             kp_clean, des_clean, kinect_to_base_matrix, depth_frame
         )
@@ -110,7 +112,7 @@ class VisualSLAMCore:
         max_likelihood_robot = max(self.robots, key=lambda r: r.likelihood)
         print(f"Best robot ID: {max_likelihood_robot.id}, Max_Likelihood: {max_likelihood_robot.likelihood}")
 
-        self.alpha_pose = max_likelihood_robot.pose
+        self.best_pose = max_likelihood_robot.pose
         best_map_manager = max_likelihood_robot.robot.map_manager
         pose_updated = True
 
@@ -119,4 +121,4 @@ class VisualSLAMCore:
         cv2.imshow("Feature + Depth", img2)
         cv2.waitKey(1)
             
-        return pose_updated, self.alpha_pose, best_map_manager
+        return pose_updated, self.best_pose, best_map_manager
