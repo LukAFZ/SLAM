@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import scipy.stats as stats
 from .config import configurations
+from .data_types import RobotOdom2D
 
 
 
@@ -31,7 +32,7 @@ class ExtKalman:
         self.JF = JF
         
     # set Jacobi Matrix of the measurement function
-    def setJH(self, rob_curr, c, s):
+    def setJH(self, c, s):
         #Transformierte JH Matrix
         self.JH = np.array([[c, s, 0.0],
                             [-s, c, 0.0],
@@ -41,21 +42,26 @@ class ExtKalman:
     def setR(self, pt, depth_value, c, s):
         s_z, s_x = self.sigma_R_approximation(depth_value)
 
+        #Guaranteed minimum error in 2D pixel space, transformed to 3D space by the Jacobian of the measurement function
         R_sigma_pixel = np.array([[s_x**2,  0.0,    0.0],
                                 [   0.0,   s_x**2, 0.0],
                                 [   0.0,   0.0,    s_z**2]])
 
+        #Transformation of the measurement noise from 2D pixel space to 3D space in the Kinect coordinate system, and then to the base coordinate system.
+        #This accounts for the fact that the measurement noise in pixel space translates to different noise characteristics in 3D space depending on the depth and the camera intrinsics.
+        #Differentiated intercept theorem
         J_pixel = np.array([[depth_value/self.f,       0.0,        (pt[0]-self.cu)/self.f],
                             [        0.0,      depth_value/self.f, (pt[1]-self.cv)/self.f],
                             [        0.0,               0.0,                 1.0]])
 
-        R_rot_kb = np.array([[ c, s, 0.0],
-                             [-s, c, 0.0],
+        #Rotation_Matrix from Kinect coordinates to base coordinates
+        R_rot_kb = np.array([[ c, -s, 0.0], 
+                             [s, c, 0.0],
                              [0.0  , 0.0, 1.0]])
 
-        R_sigma_kinect = J_pixel@R_sigma_pixel@J_pixel.T
+        R_sigma_kinect = J_pixel@R_sigma_pixel@J_pixel.T #Base Transformation of the measurement noise from pixel space to 3D space in the Kinect coordinate system
 
-        R_sigma_base = R_rot_kb.T@R_sigma_kinect@R_rot_kb
+        R_sigma_base = R_rot_kb@R_sigma_kinect@R_rot_kb.T #Base Transformation of the measurement noise from Kinect to 3D space in the base coordinate system
 
         self.R = R_sigma_base
 
@@ -70,15 +76,15 @@ class ExtKalman:
         return pstate, pP
 
     # return measurement prediction (\hat z_{t|t-1})
-    def predictMeasurement(self, rob_curr, c, s):
-        #Rechnung Matrix R_T * (Aktuelle Landmarkenposition - Roboterposition)
+    def predictMeasurement(self, curr_pose, c, s):
+        #Calculate Matrix R_T (to odom) * (Current Landmark position - Robot position)
 		#R = ([[c ,  -s, 0.0],       
 		#     [s  ,   c, 0.0],   ^T 
 	    #	  [0.0, 0.0, 1.0]])
 
-        pmeas = np.array([c*(self.x[0]-rob_curr[0])+s*(self.x[1]-rob_curr[1]),
-                         -s*(self.x[0]-rob_curr[0])+c*(self.x[1]-rob_curr[1]),
-                         self.x[2]                 -0]) # rob_curr[2] (Winkel des Roboters) !!! 
+        pmeas = np.array([c*(self.x[0]-curr_pose.x)+s*(self.x[1]-curr_pose.y),
+                         -s*(self.x[0]-curr_pose.x)+c*(self.x[1]-curr_pose.y),
+                         self.x[2]                 -0]) # Only Rotation 
         return pmeas
     
     # return matrix K
@@ -96,10 +102,10 @@ class ExtKalman:
 
 
     # Update self.x and self.P, return tuple (x_{t|t}, P_{t_t})
-    def update(self, z, rob_curr, pt, depth_value):
+    def update(self, z, curr_pose: RobotOdom2D, pt, depth_value):
 
-        c = cos(rob_curr[2])
-        s = sin(rob_curr[2])
+        c = cos(curr_pose.theta)
+        s = sin(curr_pose.theta)
 
         self.setR(pt, depth_value, c, s)
 
@@ -110,11 +116,11 @@ class ExtKalman:
         #print("State:", self.x)
         x_tt1, P_tt1 = self.predictState()
         #print("Predicted state:", x_tt1)
-        self.setJH(rob_curr, c, s)
+        self.setJH(c, s)
         
         self.P = P_tt1
 
-        z_tt1 = self.predictMeasurement(rob_curr, c, s)
+        z_tt1 = self.predictMeasurement(curr_pose, c, s)
         #print("Predicted measurement:", z_tt1)
         #print("Actual measurement:", z)
         K = self.computeKalmanGain()

@@ -41,8 +41,8 @@ class configurations():
         self.sigma_theta = 0.002 # in radians
 
         #Sigma R-Approximation
-        self.a = 0.001477
-        self.b = 0.002294
+        self.a = 0.001477 #Coefficient a for depth error approximation (constant offset)
+        self.b = 0.002294 #Coefficient b for depth error approximation (quadratic term)
         self.s_x = 0.8/3 #Lateraler Fehler
 
         self.partical_filter_fail_standart_error = -700 #Fehler für die Log-Likelihood, um Fehlberechnungen bspw. beim Ransac zu bestrafen

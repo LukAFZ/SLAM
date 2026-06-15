@@ -52,13 +52,5 @@ class RobotOdom2D:
     def __truediv__(self, factor: float) -> "RobotOdom2D":
         return RobotOdom2D(self.x / factor, self.y / factor, self.theta / factor)
 
-def normalize_angle(angle: float) -> float:
-    while abs(angle) > pi:
-        if angle > pi:
-            angle -= 2*pi
-        elif angle < -pi:
-            angle += 2*pi
-
-    return angle    
 
 

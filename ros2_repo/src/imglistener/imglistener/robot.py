@@ -104,6 +104,9 @@ class Robot():
                     self.pose.x += delta_tx_odom + epsilon_x
                     self.pose.y += delta_ty_odom + epsilon_y
                     self.pose.theta += delta_theta + epsilon_theta
+                    #print(self.pose.theta)
+                    normalized_theta = self.algorithmen.normalize_angle(self.pose.theta)
+                    self.pose.theta = normalized_theta
                     pose_updated = True
                     
                     P_array = np.array(P_local)
@@ -127,7 +130,7 @@ class Robot():
                             #Update Kalman Filter für Landmarke mit aktuellem Messwert
                             kalman_result, P, log_likelihood = lm.ekf.update(
                                 np.array(local_robot_pts_3d[train_idx]), 
-                                np.array([self.pose.x, self.pose.y, self.pose.theta]), 
+                                self.pose, 
                                 np.array([kp_clean[train_idx].pt[0], kp_clean[train_idx].pt[1]]), 
                                 depth
                             )

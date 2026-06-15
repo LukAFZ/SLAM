@@ -185,3 +185,14 @@ class algorithms:
                     visible_map_indices.append(idx)
 
         return visible_des, visible_pts_glob_2d, visible_map_indices
+    
+    def normalize_angle(self,angle: float) -> float:
+        """
+        Normalizes an angle to the range [-π, π).
+        """
+        while abs(angle) > np.pi:
+            if angle > np.pi:
+                angle -= 2*np.pi
+            elif angle < -np.pi:
+                angle += 2*np.pi
+        return angle    
