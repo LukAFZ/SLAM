@@ -32,7 +32,9 @@ class configurations():
 
         # Min und Maximale Laenge fuer Kinect in der Tiefenwerte als realistisch angesehen werden (in mm)
         self.min_depth = 400
-        self.max_depth = 7500
+        self.max_depth = 5000
+
+        self.min_landmark_distance = 100 # in mm, minimal distance to other landmarks to be considered a new landmark
 
         self.seen_count_threshold = 5 # Anzahl der Sichtungen, die eine Landmarke mindestens haben muss, um als stabil zu gelten
         self.last_seen_threshold = 15 # Anzahl der Frames, die seit der letzten Sichtung einer Landmarke vergangen sein müssen, damit sie als "verloren" gilt
