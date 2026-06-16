@@ -10,7 +10,11 @@ class configurations():
         self.pcl_topic = '/serf01/nav_rgbd_1/pointcloud'
         self.odom_topic = '/serf01/odometry/project_slam'
 
-        self.num_robots = 1 #Anzahl virueller Roboter, die gleichzeitig in der Karte verfolgt werden sollen
+        self.num_robots = 10 #Anzahl virueller Roboter, die gleichzeitig in der Karte verfolgt werden sollen
+
+        #ORB Configuration
+        self.orb_nfeatures = 500
+        self.orb_patchSize = 31
 
         # Ransac Configuration
         self.ransac_iterations = 100 # Anzahl der Iterationen für RANSAC

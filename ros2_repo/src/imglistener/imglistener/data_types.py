@@ -4,7 +4,7 @@ from math import pi
 
 from dataclasses import dataclass
 
-@dataclass
+@dataclass(slots=True)
 class Coordinate:
     x: float
     y: float
@@ -28,7 +28,7 @@ class Coordinate:
     def __truediv__(self, factor: float) -> "Coordinate":
         return Coordinate(self.x / factor, self.y / factor, self.z / factor)
     
-@dataclass 
+@dataclass(slots=True)
 class RobotOdom2D:
     x: float
     y: float

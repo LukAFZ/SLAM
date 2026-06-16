@@ -1,13 +1,14 @@
 import cv2
 import math
 import numpy as np
+import cProfile
 from .algorithms import algorithms
 from .config import configurations
 from .map_manager import MapManager
 from .robot import *
 from .data_types import RobotOdom2D
 
-@dataclass
+@dataclass(slots=True)
 class Robots:
     id: int
     pose: RobotOdom2D
@@ -19,10 +20,11 @@ class VisualSLAMCore:
         self.config = configurations()
         self.algo = algorithms()
         self.map_manager = MapManager(self.config)
+        self.p = cProfile.Profile()
         
         # Initiate ORB detector
-        self.orb = cv2.ORB_create(nfeatures=1500, patchSize=31)
-        self.bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+        self.orb = cv2.ORB_create(nfeatures=self.config.orb_nfeatures, patchSize=self.config.orb_patchSize)
+        #self.bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
         
         # Roboter-Pose & Index-Tracking
         self.best_pose = RobotOdom2D(x=0.0, y=0.0, theta=0.0)
@@ -81,7 +83,10 @@ class VisualSLAMCore:
         for selected_robot in self.robots:
 
             #best robot selection to be implemented here
+            self.p.enable()
             pose_updated, selected_robot.pose, log_r_l = selected_robot.robot.update_robot(kp_clean, des_clean, depth_frame, frame_index, base_to_kinect_matrix, local_robot_pts_3d)
+            self.p.disable()
+            self.p.print_stats(sort='cumulative')
             #if len(des_clean) > 0:
             #    log_r_l = log_r_l / len(des_clean) # normalize log likelihood by number of descriptors to avoid bias towards frames with more features
             #else:

@@ -6,7 +6,7 @@ from .extKalman_LM import ExtKalman
 from .data_types import Coordinate, RobotOdom2D
 from. algorithms import algorithms
 
-@dataclass
+@dataclass(slots=True)
 class Landmark:
     pt_glob: Coordinate
     des: Any
@@ -37,7 +37,7 @@ class MapManager:
                 des=descriptors[i],
                 seen_count=1,
                 last_seen=frame_index,
-                ekf=ExtKalman(np.array(pt))
+                ekf=ExtKalman(np.array(pt), self.config)
             ))
 
     def add_new_landmarks(self, local_pts_3d, descriptors, matched_curr_indices, curr_pose: RobotOdom2D, frame_index):
@@ -63,7 +63,7 @@ class MapManager:
                     des=descriptors[i],
                     seen_count=1,
                     last_seen=frame_index,
-                    ekf=ExtKalman(np.array([gx, gy, pt[2]]))
+                    ekf=ExtKalman(np.array([gx, gy, pt[2]]), self.config)
                 ))
 
     def clean_map(self, frame_index):

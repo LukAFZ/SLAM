@@ -3,15 +3,14 @@ from math import *
 import matplotlib.pyplot as plt
 import numpy as np
 import scipy.stats as stats
-from .config import configurations
 from .data_types import RobotOdom2D
 
 
 
 class ExtKalman:
-    def __init__(self, x):
+    def __init__(self, x, config):
 
-        self.config = configurations()
+        self.config = config
 
         self.x = x
         self.state_func = 0
@@ -22,10 +21,10 @@ class ExtKalman:
         self.Q=np.zeros((3,3))
         self.P=None
         # for R calculation
-        self.cu = configurations().cu
-        self.cv = configurations().cv
+        self.cu = self.config.cu
+        self.cv = self.config.cv
         # Focal length 
-        self.f = configurations().f
+        self.f = self.config.f
 
     # set Jacobi matrix of the state transition
     def setJF(self, JF):
