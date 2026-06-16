@@ -24,7 +24,7 @@ def generate_launch_description():
     bag_file = '/media/sf_Projekt/rosplay/Around_The_Desks_bag/Around_The_Desks_bag'
 
     rosbag_play = ExecuteProcess(
-        cmd=['ros2', 'bag', 'play', bag_file,'--clock','-r', '0.5', '--topics',
+        cmd=['ros2', 'bag', 'play', bag_file,'--clock','-r', '0.4', '--topics',
              '/serf01/nav_rgbd_1/rgb/image_raw',
              '/serf01/nav_rgbd_1/depth/image_raw',
              '/tf_static','/serf01/odometry/wheel',

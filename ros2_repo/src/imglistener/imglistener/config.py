@@ -10,7 +10,7 @@ class configurations():
         self.pcl_topic = '/serf01/nav_rgbd_1/pointcloud'
         self.odom_topic = '/serf01/odometry/project_slam'
 
-        self.num_robots = 10 #Count of Robots to be initialized in the system, if 0 or less, only one robot will be initialized (for single-robot SLAM)
+        self.num_robots = 20 #Count of Robots to be initialized in the system, if 0 or less, only one robot will be initialized (for single-robot SLAM)
 
         #ORB Configuration
         self.orb_nfeatures = 1000
@@ -18,7 +18,7 @@ class configurations():
 
         # Ransac Configuration
         self.ransac_iterations = 100 # Count of RANSAC iterations for robust pose estimation
-        self.ransac_threshold = 50 # in mm, maximum distance for a point to be considered as an inlier in RANSAC
+        self.ransac_threshold = 40 # in mm, maximum distance for a point to be considered as an inlier in RANSAC
         self.ransac_max_deviation_delta = 400 # in mm maximale erlaubte Abweichung von Δt, damit ein RANSAC-Update als gültig angesehen wird (zur Vermeidung von Ausreißern)
         self.ransac_max_deviation_theta = 2.35 # in radians maximale erlaubte Abweichung von Δtheta, damit ein RANSAC-Update als gültig angesehen wird (zur Vermeidung von Ausreißern)
         
@@ -30,13 +30,11 @@ class configurations():
         self.kinect_width = 640
         self.kinect_height = 480
 
-        self.grid_size = 3 # in pixels, minimum distance between keypoints in pixel space (e.g., 7 means one keypoint per 7x7 pixel area)
+        self.grid_size = 5 # in pixels, minimum distance between keypoints in pixel space (e.g., 7 means one keypoint per 7x7 pixel area)
 
         # min and max length for kinect depth values to filter out outliers and points that are too close or too far
         self.min_depth = 400
-        self.max_depth = 5000
-
-        self.min_landmark_distance = 1 # in mm, minimal distance to other landmarks to be considered a new landmark
+        self.max_depth = 7500
 
         self.seen_count_threshold = 5 # Minimum Count of times a landmark has been seen to be considered valid (quality metric)
         self.last_seen_threshold = 15 # Count of the number of frames after which a landmark is considered outdated if it hasn't been seen again

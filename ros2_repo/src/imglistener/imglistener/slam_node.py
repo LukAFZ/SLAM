@@ -9,6 +9,7 @@ import std_msgs.msg
 import sensor_msgs_py.point_cloud2 as pcl2
 from cv_bridge import CvBridge
 import numpy as np
+import cProfile
 from scipy.spatial.transform import Rotation
 
 from .slam_core import VisualSLAMCore
@@ -59,6 +60,7 @@ class SlamNode(Node):
         self.base_to_kinect_matrix = None
         self.depth_frame = None
 
+        self.profiler = cProfile.Profile()
     def lookup_static_tf(self):
         """lookup the static TF from kinect_depth to base_link and initialize the transformation matrices for coordinate transformations between the kinect frame and the robot's base frame."""
         # Initialize the transformation matrix if not already done
@@ -106,13 +108,15 @@ class SlamNode(Node):
             # Convert ROS image message to OpenCV format
             frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
 
+            self.profiler.enable()
             # Slam processing in slam_core.py
             pose_updated, best_pose, best_map_manager = self.slam.process_frame(
                 frame, self.depth_frame, 
                 self.kinect_to_base_matrix, self.base_to_kinect_matrix, 
                 self.frame_index
             )
-            
+            self.profiler.disable()
+            #self.profiler.print_stats(sort='cumulative')
             # Publish Landmarks as PointCloud2
             header = std_msgs.msg.Header()
             header.stamp = self.get_clock().now().to_msg()

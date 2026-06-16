@@ -96,7 +96,6 @@ class Robot():
                     epsilon_y = np.random.normal(0, sigma_y)
                     epsilon_theta = np.random.normal(0, sigma_theta)
 
-
                     # update current pose with the estimated transformation
                     self.pose.x += delta_tx_odom + epsilon_x
                     self.pose.y += delta_ty_odom + epsilon_y

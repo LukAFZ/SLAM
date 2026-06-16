@@ -27,18 +27,18 @@ class ExtKalman:
         self.f = self.config.f
 
     # set Jacobi matrix of the state transition
-    def setJF(self, JF):
+    def set_JF(self, JF):
         self.JF = JF
         
     # set Jacobi Matrix of the measurement function
-    def setJH(self, c, s):
+    def set_JH(self, c, s):
         #Transformierte JH Matrix
         self.JH = np.array([[c, s, 0.0],
                             [-s, c, 0.0],
                             [0.0, 0.0, 1.0]])
 
     # set measurement noise -- eg. for EKF
-    def setR(self, pt, depth_value, c, s):
+    def set_R(self, pt, depth_value, c, s):
         s_z, s_x = self.sigma_R_approximation(depth_value)
 
         #Guaranteed minimum error in 2D pixel space, transformed to 3D space by the Jacobian of the measurement function
@@ -65,17 +65,17 @@ class ExtKalman:
         self.R = R_sigma_base
 
     # set model noise -- eg. for EKF
-    def setQ(self, Q):
+    def set_Q(self, Q):
         self.Q = Q
 
-    def predictState(self):
+    def predict_State(self):
         #pstate = self.state_func(self.x)
         pstate = self.x
         pP = np.matmul(self.JF, np.matmul(self.P, self.JF.transpose()))+self.Q
         return pstate, pP
 
     # return measurement prediction (\hat z_{t|t-1})
-    def predictMeasurement(self, curr_pose, c, s):
+    def predict_Measurement(self, curr_pose, c, s):
         #Calculate Matrix R_T (to odom) * (Current Landmark position - Robot position)
 		#R = ([[c ,  -s, 0.0],       
 		#     [s  ,   c, 0.0],   ^T 
@@ -87,7 +87,7 @@ class ExtKalman:
         return pmeas
     
     # return matrix K
-    def computeKalmanGain(self):
+    def compute_Kalman_Gain(self):
         
         
         PHT = np.matmul(self.P, self.JH.transpose())         # PH^\top
@@ -106,23 +106,23 @@ class ExtKalman:
         c = cos(curr_pose.theta)
         s = sin(curr_pose.theta)
 
-        self.setR(pt, depth_value, c, s)
+        self.set_R(pt, depth_value, c, s)
 
         if self.P is None:
             # Erste Beobachtung: P = Messunsicherheit (in den passenden Koordinaten)
             self.P = self.R.copy()
 
         #print("State:", self.x)
-        x_tt1, P_tt1 = self.predictState()
+        x_tt1, P_tt1 = self.predict_State()
         #print("Predicted state:", x_tt1)
-        self.setJH(c, s)
+        self.set_JH(c, s)
         
         self.P = P_tt1
 
-        z_tt1 = self.predictMeasurement(curr_pose, c, s)
+        z_tt1 = self.predict_Measurement(curr_pose, c, s)
         #print("Predicted measurement:", z_tt1)
         #print("Actual measurement:", z)
-        K = self.computeKalmanGain()
+        K = self.compute_Kalman_Gain()
         self.x = self.x + np.matmul(K, (z-z_tt1))
         self.P = self.P - np.matmul(K, np.matmul(self.JH, self.P))
         
