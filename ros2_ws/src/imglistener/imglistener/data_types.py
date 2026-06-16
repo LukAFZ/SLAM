@@ -2,10 +2,9 @@
 import numpy as np
 from math import pi
 
-
 from dataclasses import dataclass
 
-@dataclass
+@dataclass(slots=True)
 class Coordinate:
     x: float
     y: float
@@ -29,36 +28,26 @@ class Coordinate:
     def __truediv__(self, factor: float) -> "Coordinate":
         return Coordinate(self.x / factor, self.y / factor, self.z / factor)
     
-@dataclass 
-class State:
+@dataclass(slots=True)
+class RobotOdom2D:
     x: float
     y: float
     theta: float
 
-    def __add__(self, other: "State") -> "State":
-        if not isinstance(other, State):
+    def __add__(self, other: "RobotOdom2D") -> "RobotOdom2D":
+        if not isinstance(other, RobotOdom2D):
             return NotImplemented
-        return State(self.x + other.x, self.y + other.y, self.theta + other.theta)
+        return RobotOdom2D(self.x + other.x, self.y + other.y, self.theta + other.theta)
 
-    def __sub__(self, other: "State") -> "State":
-        if not isinstance(other, State):
+    def __sub__(self, other: "RobotOdom2D") -> "RobotOdom2D":
+        if not isinstance(other, RobotOdom2D):
             return NotImplemented
-        return State(self.x - other.x, self.y - other.y, self.theta - other.theta)
+        return RobotOdom2D(self.x - other.x, self.y - other.y, self.theta - other.theta)
 
-    def __mul__(self, factor) -> "State":
+    def __mul__(self, factor) -> "RobotOdom2D":
         if isinstance(factor, (int, float)):
-            return State(self.x * factor, self.y * factor, self.theta * factor)
+            return RobotOdom2D(self.x * factor, self.y * factor, self.theta * factor)
         return NotImplemented
 
-    def __truediv__(self, factor: float) -> "State":
-        return State(self.x / factor, self.y / factor, self.theta / factor)
-
-
-def normalize_angle(angle: float) -> float:
-    while abs(angle) > pi:
-        if angle > pi:
-            angle -= 2*pi
-        elif angle < -pi:
-            angle += 2*pi
-
-    return angle    
+    def __truediv__(self, factor: float) -> "RobotOdom2D":
+        return RobotOdom2D(self.x / factor, self.y / factor, self.theta / factor)

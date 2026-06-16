@@ -2,7 +2,19 @@ class configurations():
 
     def __init__(self):
 
-        self.num_robots = 5 #Anzahl virueller Roboter, die gleichzeitig in der Karte verfolgt werden sollen
+        #Puffer Size für die ROS Subscriber und Publisher
+        self.puffer_size = 10
+        #Subscritption Paths
+        self.rgb_topic = '/serf01/nav_rgbd_1/rgb/image_raw'
+        self.depth_topic = '/serf01/nav_rgbd_1/depth/image_raw'
+        self.pcl_topic = '/serf01/nav_rgbd_1/pointcloud'
+        self.odom_topic = '/serf01/odometry/project_slam'
+
+        self.num_robots = 10 #Anzahl virueller Roboter, die gleichzeitig in der Karte verfolgt werden sollen
+
+        #ORB Configuration
+        self.orb_nfeatures = 500
+        self.orb_patchSize = 31
 
         # Ransac Configuration
         self.ransac_iterations = 100 # Anzahl der Iterationen für RANSAC
@@ -28,13 +40,13 @@ class configurations():
         self.frame_counter = 1 #Anzahl der Frames - 1, die nach einem Update übersprungen werden, um die Stabilität zu erhöhen (z.B. bei RANSAC-Updates)
         self.min_matches = 30 # Minimum der Anzahl von Matches, damit ein RANSAC-Update durchgeführt wird
 
-        self.sigma_x = 5 # in mm
-        self.sigma_y = 5 # in mm
+        self.sigma_x = 1.5 # in mm
+        self.sigma_y = 1.5 # in mm
         self.sigma_theta = 0.002 # in radians
 
         #Sigma R-Approximation
-        self.a = 0.001477
-        self.b = 0.002294
+        self.a = 0.001477 #Coefficient a for depth error approximation (constant offset)
+        self.b = 0.002294 #Coefficient b for depth error approximation (quadratic term)
         self.s_x = 0.8/3 #Lateraler Fehler
 
         self.partical_filter_fail_standart_error = -700 #Fehler für die Log-Likelihood, um Fehlberechnungen bspw. beim Ransac zu bestrafen

@@ -1,7 +1,7 @@
 import numpy as np
 import math
 from .config import configurations
-from .constants import Coordinate, State
+from .data_types import Coordinate, RobotOdom2D
 
 class algorithms:
 
@@ -18,8 +18,45 @@ class algorithms:
         self.min_depth = self.config.min_depth
         self.max_depth = self.config.max_depth
 
-    def ransac_refinement(self, P, Q):
+    def matrix_from_local_robot_to_odom_coords(self, coords: Coordinate, robot_pose: RobotOdom2D):
+        """
+        Transform local robot coordinates to odom coordinates
+        """
+        cos_c = math.cos(robot_pose.theta)
+        sin_c = math.sin(robot_pose.theta)
+        tx_odom = coords.x * cos_c - coords.y * sin_c
+        ty_odom = coords.x * sin_c + coords.y * cos_c
         
+        return tx_odom, ty_odom
+
+
+    def matrix_from_odom_to_local_robot_coords(self, coords: Coordinate, robot_pose: RobotOdom2D):
+        """
+        Transform odom coordinates to local robot coordinates
+        """
+        #Negatives Theta, da Ruecktransformation zu Roboter Koordinaten
+        cos_c = math.cos(-robot_pose.theta)
+        sin_c = math.sin(-robot_pose.theta)
+        lx_odom = coords.x * cos_c - coords.y * sin_c
+        ly_odom = coords.x * sin_c + coords.y * cos_c
+        
+        return lx_odom, ly_odom
+
+
+    def transform_delta_odom_to_local_robot_coords(self, coords: Coordinate, robot_pose: RobotOdom2D):
+        """
+        Calculate the delta from Coordinate to robot position and transform the odom coordinates to the local robot system
+        """
+        delta_x = coords.x - robot_pose.x
+        delta_y = coords.y - robot_pose.y
+        
+        return self.matrix_from_odom_to_local_robot_coords(Coordinate(delta_x, delta_y, z=0), robot_pose)
+
+    def ransac_refinement(self, P, Q):
+        """
+        Ransac algorithm for Kabsch algorithm to refine the transformation estimation by iteratively selecting random subsets of points, 
+        estimating the transformation, and counting inliers based on a distance threshold.
+        """
         max_iterations = self.ransac_iterations
         threshold = self.ransac_threshold
         best_rotation = None
@@ -62,8 +99,11 @@ class algorithms:
                 
         return best_rotation, best_translation, best_theta
     
-    def get_kapsch_2d(self, P, Q):    
-
+    def get_kapsch_2d(self, P, Q):  
+        """
+        Kapsch-Algrithm to calculate the transformation between two sets of 2D points (P and Q) by computing the centroids, centering the points, 
+        calculating the rotation angle, and deriving the rotation matrix and translation vector.
+        """ 
         # Calculate the centroids of P and Q
         P_middle = np.mean(P, axis=0) #p_quer
         Q_middle = np.mean(Q, axis=0) #q_quer
@@ -86,6 +126,9 @@ class algorithms:
         return Rotation_matrix, Translation, theta
     
     def calculate_local_cords_from_matches(self, kp_clean, des_clean, kinect_to_base_matrix, depth_frame):
+        """
+        Calculates the local coordinates of the landmarks based on the depth values and the camera intrinsics using the pinhole camera model and transforms them to the robot's local coordinate system.
+        """
         #current_points_3d = []
         #current_descriptors = []
         local_robot_pts_3d = []
@@ -108,22 +151,20 @@ class algorithms:
 
         return local_robot_pts_3d
     
-    def test_only_for_visible_landmarks(self, map_landmarks, robot_pose: State, base_to_kinect_matrix):
-         
+    def test_only_for_visible_landmarks(self, map_landmarks, robot_pose: RobotOdom2D, base_to_kinect_matrix):
+        """
+        Giving back only the landmarks that are in the field of view of the robot
+        """ 
         visible_des = []
         visible_pts_glob_2d = []
         visible_map_indices = []
 
         for idx, lm in enumerate(map_landmarks):
-            # Calculate relative landmark position to robot
-            delta_x = lm.pt_glob.x - (robot_pose.x)
-            delta_y = lm.pt_glob.y - (robot_pose.y)
-            # Transform to local robot coordinates
-            # Rotation by -robot_pose.theta to align with robot's current orientation
-            lx = delta_x * math.cos(-robot_pose.theta) - delta_y * math.sin(-robot_pose.theta)
-            ly = delta_x * math.sin(-robot_pose.theta) + delta_y * math.cos(-robot_pose.theta)
-            lz = lm.pt_glob.z
 
+            # Calculate relative landmark position to robot
+            # Transform to local robot coordinates
+            lx, ly = self.transform_delta_odom_to_local_robot_coords(Coordinate(lm.pt_glob.x, lm.pt_glob.y, z=0), robot_pose)
+            lz = lm.pt_glob.z
 
             pt_local_base = np.array([lx, ly, lz, 1.0])
             pt_cam = base_to_kinect_matrix @ pt_local_base
@@ -132,7 +173,7 @@ class algorithms:
             c_y = pt_cam[1]
             c_z = pt_cam[2]
             
-            #Prüfe, ob der Punkt vor der Kamera liegt und innerhalb des gültigen Tiefenbereichs liegt
+            #Check if the point is in front of the camera and within the valid depth range, then project to 2D image plane and check if it's within the image bounds
             if 0 < c_z < self.max_depth: # In front of camera and in valid depth range
                 # Project to 2D image plane with pinhole camera model
                 u_p = (c_x * self.f) / c_z + self.cu
@@ -144,3 +185,14 @@ class algorithms:
                     visible_map_indices.append(idx)
 
         return visible_des, visible_pts_glob_2d, visible_map_indices
+    
+    def normalize_angle(self,angle: float) -> float:
+        """
+        Normalizes an angle to the range [-π, π).
+        """
+        while abs(angle) > np.pi:
+            if angle > np.pi:
+                angle -= 2*np.pi
+            elif angle < -np.pi:
+                angle += 2*np.pi
+        return angle    
