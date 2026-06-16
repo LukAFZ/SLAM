@@ -24,7 +24,7 @@ class VisualSLAMCore:
         
         # Initiate ORB detector
         self.orb = cv2.ORB_create(nfeatures=self.config.orb_nfeatures, patchSize=self.config.orb_patchSize)
-        #self.bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
+        self.bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
         
         # Roboter-Pose & Index-Tracking
         self.best_pose = RobotOdom2D(x=0.0, y=0.0, theta=0.0)
@@ -45,11 +45,17 @@ class VisualSLAMCore:
                 likelihood=0.0
             ))
 
+        self.previous_des = None
+        self.previous_local_pts_3d = None
+
+
     def process_frame(self, frame, depth_frame, kinect_to_base_matrix, base_to_kinect_matrix, frame_index):
         """
         Berechnung der Pose des Roboters und Aktualisierung der Karte basierend auf dem aktuellen RGB- und Tiefenbild, sowie der aktuellen Pose-Schätzung und dem Kartenstatus.
         Rückgabe von pose_updated, x, y, theta
         """
+        pose_updated = False
+        best_map_manager = None
         
         # find the keypoints with ORB
         kp = self.orb.detect(frame, None)
@@ -74,52 +80,65 @@ class VisualSLAMCore:
         if kp_clean is None or des_clean is None:
             return False, self.best_pose, self.map_manager# skip processing if no valid keypoints/descriptors are found
 
-        # 3D coordinates calculation from perspective of the robot based on the depth values and the camera intrinsics
+        # 3D coordinates calculation of the keypoints to base coordinates
         local_robot_pts_3d = self.algo.calculate_local_cords_from_matches(
             kp_clean, des_clean, kinect_to_base_matrix, depth_frame
         )
 
-        log_robot_likelihood = []
-        for selected_robot in self.robots:
+        delta_R, delta_t, delta_theta = None, None, None
+        # Matching from Frame to Frame
+        if self.previous_des is not None and len(self.previous_des) > 0 and len(des_clean) > 0:
+            f2f_matches = self.bf.match(self.previous_des, des_clean)
+            if len(f2f_matches) > self.config.min_matches:
+                P_prev = np.array([self.previous_local_pts_3d[m.queryIdx][:2] for m in f2f_matches])
+                Q_curr = np.array([local_robot_pts_3d[m.trainIdx][:2] for m in f2f_matches])
+                delta_R, delta_t, delta_theta = self.algo.ransac_refinement(P_prev, Q_curr)
 
-            #best robot selection to be implemented here
-            self.p.enable()
-            pose_updated, selected_robot.pose, log_r_l = selected_robot.robot.update_robot(kp_clean, des_clean, depth_frame, frame_index, base_to_kinect_matrix, local_robot_pts_3d)
-            self.p.disable()
-            self.p.print_stats(sort='cumulative')
-            #if len(des_clean) > 0:
-            #    log_r_l = log_r_l / len(des_clean) # normalize log likelihood by number of descriptors to avoid bias towards frames with more features
-            #else:
-            #    log_r_l = -700
-            log_robot_likelihood.append(log_r_l)
+            log_robot_likelihood = []
+            for selected_robot in self.robots:
+
+                #best robot selection to be implemented here
+                self.p.enable()
+                pose_updated, selected_robot.pose, log_r_l = selected_robot.robot.update_robot(kp_clean, des_clean, depth_frame, frame_index, base_to_kinect_matrix, local_robot_pts_3d, delta_R, delta_t, delta_theta)
+                self.p.disable()
+                self.p.print_stats(sort='cumulative')
+                #if len(des_clean) > 0:
+                #    log_r_l = log_r_l / len(des_clean) # normalize log likelihood by number of descriptors to avoid bias towards frames with more features
+                #else:
+                #    log_r_l = -700
+                log_robot_likelihood.append(log_r_l)
 
 
-        max_log_l = max(log_robot_likelihood)
+            max_log_l = max(log_robot_likelihood)
 
 
-        #BERECHNUNG STIMMT NOCH NICHT
-        # 2. Ziehe das Maximum ab, bevor du die Exponentialfunktion anwendest.
-        # Das verschiebt den besten Partikel auf log(w) = 0 -> w = e^0 = 1.0.
-        for idx, robot in enumerate(self.robots):
-            print(f"Robot ID: {robot.id}, Log_Likelihood-Maximum: {log_robot_likelihood[idx] - max_log_l}")
-            robot.likelihood = np.exp(log_robot_likelihood[idx] - max_log_l)
+            #BERECHNUNG STIMMT NOCH NICHT
+            # 2. Ziehe das Maximum ab, bevor du die Exponentialfunktion anwendest.
+            # Das verschiebt den besten Partikel auf log(w) = 0 -> w = e^0 = 1.0.
+            for idx, robot in enumerate(self.robots):
+                print(f"Robot ID: {robot.id}, Log_Likelihood-Maximum: {log_robot_likelihood[idx] - max_log_l}")
+                robot.likelihood = np.exp(log_robot_likelihood[idx] - max_log_l)
 
-        # 3. Normarlisieren, damit die Summe aller Gewichte 1 ergibt
-        total_weight = sum(robot.likelihood for robot in self.robots)
-        if total_weight > 0:
-            for robot in self.robots:
-                robot.likelihood /= total_weight
-        else:
-            # Falls alle Likelihoods 0 sind, setze sie gleichmäßig auf 1/N
-            for robot in self.robots:
-                robot.likelihood = 1.0 / self.num_robots
+            # 3. Normarlisieren, damit die Summe aller Gewichte 1 ergibt
+            total_weight = sum(robot.likelihood for robot in self.robots)
+            if total_weight > 0:
+                for robot in self.robots:
+                    robot.likelihood /= total_weight
+            else:
+                # Falls alle Likelihoods 0 sind, setze sie gleichmäßig auf 1/N
+                for robot in self.robots:
+                    robot.likelihood = 1.0 / self.num_robots
 
-        max_likelihood_robot = max(self.robots, key=lambda r: r.likelihood)
-        print(f"Best robot ID: {max_likelihood_robot.id}, Max_Likelihood: {max_likelihood_robot.likelihood}")
+            max_likelihood_robot = max(self.robots, key=lambda r: r.likelihood)
+            print(f"Best robot ID: {max_likelihood_robot.id}, Max_Likelihood: {max_likelihood_robot.likelihood}")
 
-        self.best_pose = max_likelihood_robot.pose
-        best_map_manager = max_likelihood_robot.robot.map_manager
-        pose_updated = True
+            self.best_pose = max_likelihood_robot.pose
+            best_map_manager = max_likelihood_robot.robot.map_manager
+            pose_updated = True
+
+        # save this frame
+        self.previous_des = des_clean
+        self.previous_local_pts_3d = local_robot_pts_3d
 
         # draw keypoints in green
         img2 = cv2.drawKeypoints(frame, kp_clean, None, color=(0,255,0), flags=0)

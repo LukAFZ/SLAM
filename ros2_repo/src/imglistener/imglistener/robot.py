@@ -33,7 +33,7 @@ class Robot():
         self.algorithmen = algorithms()
         self.map_initialized = False
 
-    def update_robot(self, kp_clean, des_clean, depth_frame, frame_index, base_to_kinect_matrix, local_robot_pts_3d):
+    def update_robot(self, kp_clean, des_clean, depth_frame, frame_index, base_to_kinect_matrix, local_robot_pts_3d, delta_R, delta_t, delta_theta):
         """
         Updaten eines Roboters basierend auf dem aktuellen Frame und der Karte mithilfe von Ransac, Kapschen Algorithmus und EKF-Updates für Landmarken.
         """
@@ -47,12 +47,9 @@ class Robot():
         # Viewing Cone - filter landmarks that are in the field of view of the robot
         visible_des, visible_pts_glob_2d, visible_map_indices = self.algorithmen.test_only_for_visible_landmarks(self.map_manager.landmarks, self.pose, base_to_kinect_matrix)
         
-        delta_R = None
-        delta_t = None
-        delta_theta = None
-        
         log_robot_likelihood = 0.0
         pose_updated = False
+
         if len(visible_des) > 0:
             # Match visible landmarks with current frame keypoints
             matches = self.bf.match(np.array(visible_des), des_clean)
@@ -84,7 +81,7 @@ class Robot():
                     #visible_landmarks.append(lm)
 
                 # ransac refinement to get robust transformation estimation
-                delta_R, delta_t, delta_theta = self.algorithmen.ransac_refinement(np.array(P_local), np.array(Q_curr))
+                #delta_R, delta_t, delta_theta = self.algorithmen.ransac_refinement(np.array(P_local), np.array(Q_curr))
 
                 #Calculate in ODOM
                 if delta_R is not None:

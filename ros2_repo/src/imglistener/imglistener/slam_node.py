@@ -113,6 +113,11 @@ class SlamNode(Node):
                 self.frame_index
             )
             
+            # Publish Landmarks as PointCloud2
+            header = std_msgs.msg.Header()
+            header.stamp = self.get_clock().now().to_msg()
+            header.frame_id = self.odom_frame
+
             if pose_updated:
                 print(f"Pose aktualisiert: x={best_pose.x:.2f} mm, y={best_pose.y:.2f} mm, theta={best_pose.theta:.2f} rad")
                 # Publish TF and Odometry for visualization and downstream tasks
@@ -120,15 +125,12 @@ class SlamNode(Node):
                 self.publish_robots_tf_array(self.slam.robots, msg.header.stamp)
                 self.publish_odometry_msg(best_pose.x / 1000.0, best_pose.y / 1000.0, best_pose.theta, msg.header.stamp)
                 self.frame_counter = self.slam.config.frame_counter
+                map_points = best_map_manager.get_all_points_for_msg()
+                if map_points:
+                    self.pcl_publisher.publish(pcl2.create_cloud_xyz32(header, map_points))
             else:
                 print("Kein Posen-Update")
-            # Publish Landmarks as PointCloud2
-            header = std_msgs.msg.Header()
-            header.stamp = self.get_clock().now().to_msg()
-            header.frame_id = self.odom_frame
-            map_points = best_map_manager.get_all_points_for_msg()
-            if map_points:
-                self.pcl_publisher.publish(pcl2.create_cloud_xyz32(header, map_points))
+
         else:
             print(f"Skipping frame {self.frame_index} to increase stability. Frame counter: {self.frame_counter}")
 

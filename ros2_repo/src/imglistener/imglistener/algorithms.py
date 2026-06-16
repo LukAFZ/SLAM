@@ -155,36 +155,89 @@ class algorithms:
         """
         Giving back only the landmarks that are in the field of view of the robot
         """ 
-        visible_des = []
-        visible_pts_glob_2d = []
-        visible_map_indices = []
+        # visible_des = []
+        # visible_pts_glob_2d = []
+        # visible_map_indices = []
 
-        for idx, lm in enumerate(map_landmarks):
+        # for idx, lm in enumerate(map_landmarks):
 
-            # Calculate relative landmark position to robot
-            # Transform to local robot coordinates
-            lx, ly = self.transform_delta_odom_to_local_robot_coords(Coordinate(lm.pt_glob.x, lm.pt_glob.y, z=0), robot_pose)
-            lz = lm.pt_glob.z
+        #     # Calculate relative landmark position to robot
+        #     # Transform to local robot coordinates
+        #     lx, ly = self.transform_delta_odom_to_local_robot_coords(Coordinate(lm.pt_glob.x, lm.pt_glob.y, z=0), robot_pose)
+        #     lz = lm.pt_glob.z
 
-            pt_local_base = np.array([lx, ly, lz, 1.0])
-            pt_cam = base_to_kinect_matrix @ pt_local_base
+        #     pt_local_base = np.array([lx, ly, lz, 1.0])
+        #     pt_cam = base_to_kinect_matrix @ pt_local_base
             
-            c_x = pt_cam[0]
-            c_y = pt_cam[1]
-            c_z = pt_cam[2]
+        #     c_x = pt_cam[0]
+        #     c_y = pt_cam[1]
+        #     c_z = pt_cam[2]
             
-            #Check if the point is in front of the camera and within the valid depth range, then project to 2D image plane and check if it's within the image bounds
-            if 0 < c_z < self.max_depth: # In front of camera and in valid depth range
-                # Project to 2D image plane with pinhole camera model
-                u_p = (c_x * self.f) / c_z + self.cu
-                v_p = (c_y * self.f) / c_z + self.cv
-                # Check if projected point is within image bounds
-                if 0 <= u_p <= self.kinect_width and 0 <= v_p <= self.kinect_height:
-                    visible_des.append(lm.des)
-                    visible_pts_glob_2d.append((lm.pt_glob.x, lm.pt_glob.y))
-                    visible_map_indices.append(idx)
+        #     #Check if the point is in front of the camera and within the valid depth range, then project to 2D image plane and check if it's within the image bounds
+        #     if 0 < c_z < self.max_depth: # In front of camera and in valid depth range
+        #         # Project to 2D image plane with pinhole camera model
+        #         u_p = (c_x * self.f) / c_z + self.cu
+        #         v_p = (c_y * self.f) / c_z + self.cv
+        #         # Check if projected point is within image bounds
+        #         if 0 <= u_p <= self.kinect_width and 0 <= v_p <= self.kinect_height:
+        #             visible_des.append(lm.des)
+        #             visible_pts_glob_2d.append((lm.pt_glob.x, lm.pt_glob.y))
+        #             visible_map_indices.append(idx)
+
+        # 1. Alle globalen Koordinaten in einer 4 x N Matrix sammeln
+        pts_glob = np.array([[lm.pt_glob.x, lm.pt_glob.y, lm.pt_glob.z, 1.0] for lm in map_landmarks]).T # Form: 4 x N
+        
+        # 2. Homogene Transformationsmatrix von Odom zu Base erstellen
+        theta = robot_pose.theta
+        cos_c = math.cos(theta)
+        sin_c = math.sin(theta)
+        tx, ty = robot_pose.x, robot_pose.y
+        
+        T_odom_to_base = np.array([
+            [ cos_c,  sin_c, 0.0, -tx * cos_c - ty * sin_c],
+            [-sin_c,  cos_c, 0.0,  tx * sin_c - ty * cos_c],
+            [   0.0,    0.0, 1.0,                      0.0],
+            [   0.0,    0.0, 0.0,                      1.0]
+        ])
+        
+        # 3. Transformationen verketten: Odom -> Base -> Kinect Kamera
+        T_odom_to_kinect = base_to_kinect_matrix @ T_odom_to_base
+        
+        # 4. Alle Punkte auf einmal in das Kamerasystem transformieren
+        pts_cam = T_odom_to_kinect @ pts_glob # Form: 4 x N
+        
+        c_x = pts_cam[0, :]
+        c_y = pts_cam[1, :]
+        c_z = pts_cam[2, :]
+        
+        # 5. Gültigen Tiefenbereich filtern (Z-Achse vor der Kamera)
+        valid_depth = (c_z > 0) & (c_z < self.max_depth)
+        
+        # Arrays für die 2D-Projektionen initialisieren
+        u_p = np.zeros_like(c_z)
+        v_p = np.zeros_like(c_z)
+        
+        # Projektion nach dem Lochkameramodell (nur für Punkte mit gültiger Tiefe)
+        u_p[valid_depth] = (c_x[valid_depth] * self.f) / c_z[valid_depth] + self.cu
+        v_p[valid_depth] = (c_y[valid_depth] * self.f) / c_z[valid_depth] + self.cv
+        
+        # 6. Sichtbarkeitsmaske erstellen (Liegt der Punkt im Bildfenster?)
+        visible_mask = (
+            valid_depth & 
+            (u_p >= 0) & (u_p <= self.kinect_width) & 
+            (v_p >= 0) & (v_p <= self.kinect_height)
+        )
+        
+        # 7. Indices der sichtbaren Landmarken bestimmen
+        visible_indices = np.where(visible_mask)[0]
+        
+        # Ergebnisse extrahieren
+        visible_des = [map_landmarks[i].des for i in visible_indices]
+        visible_pts_glob_2d = [(map_landmarks[i].pt_glob.x, map_landmarks[i].pt_glob.y) for i in visible_indices]
+        visible_map_indices = visible_indices.tolist()
 
         return visible_des, visible_pts_glob_2d, visible_map_indices
+
     
     def normalize_angle(self,angle: float) -> float:
         """
