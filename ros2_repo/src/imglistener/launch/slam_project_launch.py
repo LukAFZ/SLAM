@@ -21,7 +21,7 @@ def generate_launch_description():
     #    output='screen'
     #)
 
-    bag_file = '/media/sf_Projekt/rosplay/Around_The_Desks_bag/Around_The_Desks_bag'
+    bag_file = '/media/sf_Projekt/rosplay/TransXY_bag/20260519_TransXY_bag'
 
     rosbag_play = ExecuteProcess(
         cmd=['ros2', 'bag', 'play', bag_file,'--clock','-r', '0.4', '--topics',
