@@ -49,6 +49,6 @@ class configurations():
         #Sigma R-Approximation
         self.a = 0.001477 #Coefficient a for depth error approximation (constant offset)
         self.b = 0.002294 #Coefficient b for depth error approximation (quadratic term)
-        self.s_x = 0.8/3 #Lateraler Fehler
+        self.s_x = 0.8/3 # Lateral Error
 
-        self.partical_filter_fail_standart_error = -700 #Fehler für die Log-Likelihood, um Fehlberechnungen bspw. beim Ransac zu bestrafen
+        self.partical_filter_fail_standart_error = -70000 #Error for Log-Likelyhood to penaltize particle filter updates that fail (e.g., due to too few matches or RANSAC failure)
