@@ -55,21 +55,16 @@ class MapManager:
                 #Then Translation:
                 gx = (curr_pos_x) + rx
                 gy = (curr_pos_y) + ry
-                for lm in self.landmarks:
-                    dist = math.sqrt((lm.pt_glob.x - gx)**2 + (lm.pt_glob.y - gy)**2)
-                    if dist < self.config.min_landmark_distance:
-                        break
                 #gx = (curr_pos_x) + pt[0]*math.cos(curr_theta) - pt[1]*math.sin(curr_theta)
                 #gy = (curr_pos_y) + pt[0]*math.sin(curr_theta) + pt[1]*math.cos(curr_theta)
-                else:
-                    coordinate = Coordinate(gx, gy, pt[2])
-                    self.landmarks.append(Landmark(
-                        pt_glob=coordinate,
-                        des=descriptors[i],
-                        seen_count=1,
-                        last_seen=frame_index,
-                        ekf=ExtKalman(np.array([gx, gy, pt[2]]), self.config)
-                    ))
+                coordinate = Coordinate(gx, gy, pt[2])
+                self.landmarks.append(Landmark(
+                    pt_glob=coordinate,
+                    des=descriptors[i],
+                    seen_count=1,
+                    last_seen=frame_index,
+                    ekf=ExtKalman(np.array([gx, gy, pt[2]]), self.config)
+                ))
 
     def clean_map(self, frame_index):
         """delete landmarks that are not seen for a long time or have a low seen_count (quality metric)"""

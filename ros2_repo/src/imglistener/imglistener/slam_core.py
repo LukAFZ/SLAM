@@ -1,7 +1,6 @@
 import cv2
 import math
 import numpy as np
-import cProfile
 from .algorithms import algorithms
 from .config import configurations
 from .map_manager import MapManager
@@ -20,7 +19,6 @@ class VisualSLAMCore:
         self.config = configurations()
         self.algo = algorithms()
         self.map_manager = MapManager(self.config)
-        self.p = cProfile.Profile()
         
         # Initiate ORB detector
         self.orb = cv2.ORB_create(nfeatures=self.config.orb_nfeatures, patchSize=self.config.orb_patchSize)
@@ -62,18 +60,44 @@ class VisualSLAMCore:
         
         kp_clean = []
         # if depth frame is available, filter keypoints based on depth values to remove outliers and points that are too close or too far
+        # if depth_frame is not None:
+        #     # cycle through keypoints
+        #     for point in kp:
+        #         # get x,y coordinates of keypoint in pixel space
+        #         x, y = int(point.pt[0]), int(point.pt[1])
+        #         # get depth value at keypoint location and convert to meters
+        #         depth = depth_frame[y, x]
+        #         if self.config.min_depth < depth < self.config.max_depth: # filter out invalid depth values
+        #             kp_clean.append(point)
+        # else:
+        #     return False, self.best_pose, self.map_manager # skip processing if depth frame is not available
+        occupied_cells = set()
         if depth_frame is not None:
+            
+            #Sort Keypoints by their response (strength)
+            kp = sorted(kp, key=lambda x: x.response, reverse=True)
+            
             # cycle through keypoints
             for point in kp:
                 # get x,y coordinates of keypoint in pixel space
                 x, y = int(point.pt[0]), int(point.pt[1])
-                # get depth value at keypoint location and convert to meters
+                
+                # 1. Calculate depth value
                 depth = depth_frame[y, x]
-                if self.config.min_depth < depth < self.config.max_depth: # filter out invalid depth values
-                    kp_clean.append(point)
+                if self.config.min_depth < depth < self.config.max_depth:
+                    
+                    # Calculate grid cell ID
+                    cell_x = x // self.config.grid_size
+                    cell_y = y // self.config.grid_size
+                    cell_id = (cell_x, cell_y)
+                    
+                    # If Region is not occupied, add keypoint and mark region as occupied
+                    if cell_id not in occupied_cells:
+                        kp_clean.append(point)
+                        occupied_cells.add(cell_id) # Block Region for other keypoints
+                        
         else:
-            return False, self.best_pose, self.map_manager # skip processing if depth frame is not available
-        
+            return False, self.best_pose, self.map_manager
         # compute the descriptors with ORB only for the filtered keypoints
         kp_clean, des_clean = self.orb.compute(frame, kp_clean)
         
@@ -96,12 +120,8 @@ class VisualSLAMCore:
 
             log_robot_likelihood = []
             for selected_robot in self.robots:
-
                 #best robot selection to be implemented here
-                self.p.enable()
                 pose_updated, selected_robot.pose, log_r_l = selected_robot.robot.update_robot(kp_clean, des_clean, depth_frame, frame_index, base_to_kinect_matrix, local_robot_pts_3d, delta_R, delta_t, delta_theta)
-                self.p.disable()
-                self.p.print_stats(sort='cumulative')
                 #if len(des_clean) > 0:
                 #    log_r_l = log_r_l / len(des_clean) # normalize log likelihood by number of descriptors to avoid bias towards frames with more features
                 #else:

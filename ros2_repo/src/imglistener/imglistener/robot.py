@@ -113,6 +113,7 @@ class Robot():
                     Q_transformed = (delta_R @ Q_array.T).T + delta_t
                     errors = np.linalg.norm(P_array - Q_transformed, axis=1)
 
+                    accepted_inlier_count = 0
 
                     for i, match in enumerate(matches):
                         if errors[i] < self.config.ransac_threshold: # Only allow true insliers to update the map
@@ -136,7 +137,7 @@ class Robot():
                             #self.map_manager.landmarks[map_idx]['pt_glob'] = [kalman_result[0], kalman_result[1], kalman_result[2]]
                             self.map_manager.landmarks[map_idx]
                             lm.pt_glob = Coordinate(x=kalman_result[0], y=kalman_result[1], z=kalman_result[2])
-
+                            accepted_inlier_count += 1
                             #z_pt = local_robot_pts_3d[train_idx][:2]
                             #depth_val = local_robot_pts_3d[train_idx][2]
                         else:
@@ -148,6 +149,10 @@ class Robot():
                         self.pose, frame_index
                     )
                     
+                    # Penalty for to few inliers to avoid accepting bad pose updates
+                    missing_inliers = len(matches) - accepted_inlier_count
+                    log_robot_likelihood += missing_inliers * self.config.partical_filter_fail_standart_error
+
                     # remove old landmarks that are not seen anymore
                     self.map_manager.clean_map(frame_index)
 
@@ -162,7 +167,7 @@ class Robot():
                     print("RANSAC failed to find a valid transformation.")
                     log_robot_likelihood = self.config.partical_filter_fail_standart_error # very low likelihood if RANSAC fails to discourage this pose update
             else:
-                print(f"Not enough matches found for RANSAC {len(matches)}")
+                print(f"Nicht genug matches gefunden: {len(matches)}")
                 log_robot_likelihood = self.config.partical_filter_fail_standart_error # very low likelihood if not enough matches are found to discourage this pose update
         else:
             print("No visible landmarks to match with.")
