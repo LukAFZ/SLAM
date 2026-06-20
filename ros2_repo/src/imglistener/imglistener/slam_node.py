@@ -32,16 +32,16 @@ class SlamNode(Node):
 
         # Subscribe to RGB image topic with puffer-size 10
         self.subscription_rgb = self.create_subscription(
-            Image, self.config.rgb_topic, self.listener_callback_rgb, self.config.puffer_size
+            Image, self.config.RGB_TOPIC, self.listener_callback_rgb, self.config.PUFFER_SIZE
         )
         # Subscribe to depth image topic with puffer-size 10
         self.subscription_depth = self.create_subscription(
-            Image, self.config.depth_topic, self.listener_callback_depth, self.config.puffer_size
+            Image, self.config.DEPTH_TOPIC, self.listener_callback_depth, self.config.PUFFER_SIZE
         )
         # Publisher for 3D pointcloud with puffer-size 10
-        self.pcl_publisher = self.create_publisher(PointCloud2, self.config.pcl_topic, self.config.puffer_size)
+        self.pcl_publisher = self.create_publisher(PointCloud2, self.config.PCL_TOPIC, self.config.PUFFER_SIZE)
         # Odometry Publisher with puffer-size 10
-        self.odom_publisher = self.create_publisher(Odometry, self.config.odom_topic, self.config.puffer_size)
+        self.odom_publisher = self.create_publisher(Odometry, self.config.ODOM_TOPIC, self.config.PUFFER_SIZE)
 
         # TF initialization
         self.tf_broadcaster = TransformBroadcaster(self)
@@ -53,7 +53,7 @@ class SlamNode(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
         # Counter of frames to skip after an update to increase stability (e.g., after RANSAC updates)
-        self.frame_counter = self.slam.config.frame_counter
+        self.frame_counter = self.slam.config.FRAME_COUNTER
         self.frame_index = 0
 
         self.kinect_to_base_matrix = None
@@ -128,7 +128,7 @@ class SlamNode(Node):
                 self.publish_tf(best_pose.x / 1000.0, best_pose.y / 1000.0, best_pose.theta, msg.header.stamp)
                 self.publish_robots_tf_array(self.slam.robots, msg.header.stamp)
                 self.publish_odometry_msg(best_pose.x / 1000.0, best_pose.y / 1000.0, best_pose.theta, msg.header.stamp)
-                self.frame_counter = self.slam.config.frame_counter
+                self.frame_counter = self.slam.config.FRAME_COUNTER
                 map_points = best_map_manager.get_all_points_for_msg()
                 if map_points:
                     self.pcl_publisher.publish(pcl2.create_cloud_xyz32(header, map_points))

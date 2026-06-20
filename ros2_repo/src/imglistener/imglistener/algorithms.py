@@ -6,17 +6,18 @@ from .data_types import Coordinate, RobotOdom2D
 class algorithms:
 
     def __init__(self):
+        #Initiate configuration parameters for algorithms directly in the constructor to avoid having to access the config object multiple times (faster)
         self.config = configurations()
-        self.ransac_iterations = self.config.ransac_iterations
-        self.ransac_threshold = self.config.ransac_threshold
+        self.ransac_iterations = self.config.RANSAC_ITERATIONS
+        self.ransac_threshold = self.config.RANSAC_THRESHOLD
 
-        self.cu = self.config.cu
-        self.cv = self.config.cv
-        self.f = self.config.f
-        self.kinect_height = self.config.kinect_height
-        self.kinect_width = self.config.kinect_width
-        self.min_depth = self.config.min_depth
-        self.max_depth = self.config.max_depth
+        self.cu = self.config.CU
+        self.cv = self.config.CV
+        self.f = self.config.F
+        self.kinect_height = self.config.KINECT_HEIGHT
+        self.kinect_width = self.config.KINECT_WIDTH
+        self.min_depth = self.config.MIN_DEPTH
+        self.max_depth = self.config.MAX_DEPTH
 
     def matrix_from_local_robot_to_odom_coords(self, coords: Coordinate, robot_pose: RobotOdom2D):
         """

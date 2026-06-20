@@ -21,10 +21,15 @@ class ExtKalman:
         self.Q=np.zeros((3,3))
         self.P=None
         # for R calculation
-        self.cu = self.config.cu
-        self.cv = self.config.cv
+        # initiate the values directly from the config to avoid having to access the config object multiple times (faster)
+        self.cu = self.config.CU
+        self.cv = self.config.CV
         # Focal length 
-        self.f = self.config.f
+        self.f = self.config.F
+        self.a = self.config.A
+        self.b = self.config.B
+        self.s_x = self.config.S_X
+        self.fatal_error = self.config.PARTICLE_FILTER_FAIL_STANDARD_ERROR
 
     # set Jacobi matrix of the state transition
     def set_JF(self, JF):
@@ -68,14 +73,14 @@ class ExtKalman:
     def set_Q(self, Q):
         self.Q = Q
 
-    def predict_State(self):
+    def predict_state(self):
         #pstate = self.state_func(self.x)
         pstate = self.x
         pP = np.matmul(self.JF, np.matmul(self.P, self.JF.transpose()))+self.Q
         return pstate, pP
 
     # return measurement prediction (\hat z_{t|t-1})
-    def predict_Measurement(self, curr_pose, c, s):
+    def predict_measurement(self, curr_pose, c, s):
         #Calculate Matrix R_T (to odom) * (Current Landmark position - Robot position)
 		#R = ([[c ,  -s, 0.0],       
 		#     [s  ,   c, 0.0],   ^T 
@@ -87,7 +92,7 @@ class ExtKalman:
         return pmeas
     
     # return matrix K
-    def compute_Kalman_Gain(self):
+    def compute_kalman_gain(self):
         
         
         PHT = np.matmul(self.P, self.JH.transpose())         # PH^\top
@@ -113,16 +118,16 @@ class ExtKalman:
             self.P = self.R.copy()
 
         #print("State:", self.x)
-        x_tt1, P_tt1 = self.predict_State()
+        x_tt1, P_tt1 = self.predict_state()
         #print("Predicted state:", x_tt1)
         self.set_JH(c, s)
         
         self.P = P_tt1
 
-        z_tt1 = self.predict_Measurement(curr_pose, c, s)
+        z_tt1 = self.predict_measurement(curr_pose, c, s)
         #print("Predicted measurement:", z_tt1)
         #print("Actual measurement:", z)
-        K = self.compute_Kalman_Gain()
+        K = self.compute_kalman_gain()
         self.x = self.x + np.matmul(K, (z-z_tt1))
         self.P = self.P - np.matmul(K, np.matmul(self.JH, self.P))
         
@@ -133,15 +138,15 @@ class ExtKalman:
     def sigma_R_approximation(self, depth_value: float):
         #a→ konstanter Offset (Rauschen bei minimalem Abstand)
         #b→ quadratischer Koeffizient (fitted)
-        a = self.config.a
-        b = self.config.b
+        a = self.a
+        b = self.b
 
         depth_m = depth_value / 1000.0 # convert to meters
          # Tiefenfehler (d^2 für Kinect structured light)
         s_z_m = a + b * (depth_m - 0.4)**2
         s_z = s_z_m * 1000 # in mm
         # Lateraler Fehler (Bogenlänge, ~0.086° Auflösung)
-        s_x = self.config.s_x
+        s_x = self.s_x
 
 
         return s_z, s_x
@@ -170,4 +175,4 @@ class ExtKalman:
             return log_likelihood
         except np.linalg.LinAlgError:
             # Fallback block to guard against zero or singular determinant matrix crashes
-            return self.config.partical_filter_fail_standart_error # very low likelihood in case of numerical issues to discourage this measurement update
+            return self.fatal_error # very low likelihood in case of numerical issues to discourage this measurement update

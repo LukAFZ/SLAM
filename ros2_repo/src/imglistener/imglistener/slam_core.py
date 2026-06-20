@@ -21,18 +21,14 @@ class VisualSLAMCore:
         self.map_manager = MapManager(self.config)
         
         # Initiate ORB detector
-        self.orb = cv2.ORB_create(nfeatures=self.config.orb_nfeatures, patchSize=self.config.orb_patchSize)
+        self.orb = cv2.ORB_create(nfeatures=self.config.ORB_NFEATURES, patchSize=self.config.ORB_PATCH_SIZE)
         self.bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
         
         # Roboter-Pose & Index-Tracking
         self.best_pose = RobotOdom2D(x=0.0, y=0.0, theta=0.0)
 
-        # Anzahl der Frames, die nach einem Update übersprungen werden, um die Stabilität zu erhöhen (z.B. bei RANSAC-Updates)
-        #self.frame_counter = self.slam.config.frame_counter
-        #self.frame_index = 0
-
         self.robots = []
-        self.num_robots = self.config.num_robots
+        self.num_robots = self.config.NUM_ROBOTS
         if self.num_robots <= 0:
             self.num_robots = 1 # mindestens ein Roboter, um die Karte zu erstellen
         for N in range(self.num_robots):
@@ -84,11 +80,11 @@ class VisualSLAMCore:
                 
                 # 1. Calculate depth value
                 depth = depth_frame[y, x]
-                if self.config.min_depth < depth < self.config.max_depth:
+                if self.config.MIN_DEPTH < depth < self.config.MAX_DEPTH:
                     
                     # Calculate grid cell ID
-                    cell_x = x // self.config.grid_size
-                    cell_y = y // self.config.grid_size
+                    cell_x = x // self.config.GRID_SIZE
+                    cell_y = y // self.config.GRID_SIZE
                     cell_id = (cell_x, cell_y)
                     
                     # If Region is not occupied, add keypoint and mark region as occupied
@@ -113,7 +109,7 @@ class VisualSLAMCore:
         # Matching from Frame to Frame
         if self.previous_des is not None and len(self.previous_des) > 0 and len(des_clean) > 0:
             f2f_matches = self.bf.match(self.previous_des, des_clean)
-            if len(f2f_matches) > self.config.min_matches:
+            if len(f2f_matches) > self.config.MIN_MATCHES:
                 P_prev = np.array([self.previous_local_pts_3d[m.queryIdx][:2] for m in f2f_matches])
                 Q_curr = np.array([local_robot_pts_3d[m.trainIdx][:2] for m in f2f_matches])
                 delta_R, delta_t, delta_theta = self.algo.ransac_refinement(P_prev, Q_curr)
