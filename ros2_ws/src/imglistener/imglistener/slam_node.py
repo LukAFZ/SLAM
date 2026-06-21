@@ -9,6 +9,7 @@ import std_msgs.msg
 import sensor_msgs_py.point_cloud2 as pcl2
 from cv_bridge import CvBridge
 import numpy as np
+import cProfile
 from scipy.spatial.transform import Rotation
 
 from .slam_core import VisualSLAMCore
@@ -31,16 +32,16 @@ class SlamNode(Node):
 
         # Subscribe to RGB image topic with puffer-size 10
         self.subscription_rgb = self.create_subscription(
-            Image, self.config.rgb_topic, self.listener_callback_rgb, self.config.puffer_size
+            Image, self.config.RGB_TOPIC, self.listener_callback_rgb, self.config.PUFFER_SIZE
         )
         # Subscribe to depth image topic with puffer-size 10
         self.subscription_depth = self.create_subscription(
-            Image, self.config.depth_topic, self.listener_callback_depth, self.config.puffer_size
+            Image, self.config.DEPTH_TOPIC, self.listener_callback_depth, self.config.PUFFER_SIZE
         )
         # Publisher for 3D pointcloud with puffer-size 10
-        self.pcl_publisher = self.create_publisher(PointCloud2, self.config.pcl_topic, self.config.puffer_size)
+        self.pcl_publisher = self.create_publisher(PointCloud2, self.config.PCL_TOPIC, self.config.PUFFER_SIZE)
         # Odometry Publisher with puffer-size 10
-        self.odom_publisher = self.create_publisher(Odometry, self.config.odom_topic, self.config.puffer_size)
+        self.odom_publisher = self.create_publisher(Odometry, self.config.ODOM_TOPIC, self.config.PUFFER_SIZE)
 
         # TF initialization
         self.tf_broadcaster = TransformBroadcaster(self)
@@ -52,13 +53,14 @@ class SlamNode(Node):
         self.tf_listener = TransformListener(self.tf_buffer, self)
 
         # Counter of frames to skip after an update to increase stability (e.g., after RANSAC updates)
-        self.frame_counter = self.slam.config.frame_counter
+        self.frame_counter = self.slam.config.FRAME_COUNTER
         self.frame_index = 0
 
         self.kinect_to_base_matrix = None
         self.base_to_kinect_matrix = None
         self.depth_frame = None
 
+        self.profiler = cProfile.Profile()
     def lookup_static_tf(self):
         """lookup the static TF from kinect_depth to base_link and initialize the transformation matrices for coordinate transformations between the kinect frame and the robot's base frame."""
         # Initialize the transformation matrix if not already done
@@ -106,29 +108,33 @@ class SlamNode(Node):
             # Convert ROS image message to OpenCV format
             frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
 
+            self.profiler.enable()
             # Slam processing in slam_core.py
             pose_updated, best_pose, best_map_manager = self.slam.process_frame(
                 frame, self.depth_frame, 
                 self.kinect_to_base_matrix, self.base_to_kinect_matrix, 
                 self.frame_index
             )
-            
+            self.profiler.disable()
+            #self.profiler.print_stats(sort='cumulative')
+            # Publish Landmarks as PointCloud2
+            header = std_msgs.msg.Header()
+            header.stamp = self.get_clock().now().to_msg()
+            header.frame_id = self.odom_frame
+
             if pose_updated:
                 print(f"Pose aktualisiert: x={best_pose.x:.2f} mm, y={best_pose.y:.2f} mm, theta={best_pose.theta:.2f} rad")
                 # Publish TF and Odometry for visualization and downstream tasks
                 self.publish_tf(best_pose.x / 1000.0, best_pose.y / 1000.0, best_pose.theta, msg.header.stamp)
                 self.publish_robots_tf_array(self.slam.robots, msg.header.stamp)
                 self.publish_odometry_msg(best_pose.x / 1000.0, best_pose.y / 1000.0, best_pose.theta, msg.header.stamp)
-                self.frame_counter = self.slam.config.frame_counter
+                self.frame_counter = self.slam.config.FRAME_COUNTER
+                map_points = best_map_manager.get_all_points_for_msg()
+                if map_points:
+                    self.pcl_publisher.publish(pcl2.create_cloud_xyz32(header, map_points))
             else:
                 print("Kein Posen-Update")
-            # Publish Landmarks as PointCloud2
-            header = std_msgs.msg.Header()
-            header.stamp = self.get_clock().now().to_msg()
-            header.frame_id = self.odom_frame
-            map_points = best_map_manager.get_all_points_for_msg()
-            if map_points:
-                self.pcl_publisher.publish(pcl2.create_cloud_xyz32(header, map_points))
+
         else:
             print(f"Skipping frame {self.frame_index} to increase stability. Frame counter: {self.frame_counter}")
 

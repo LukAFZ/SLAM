@@ -18,6 +18,8 @@ class MapManager:
     def __init__(self, config):
         self.config = config
         self.algorithms = algorithms()
+        self.seen_count_threshold = self.config.SEEN_COUNT_THRESHOLD
+        self.last_seen_threshold = self.config.LAST_SEEN_THRESHOLD
         # Map Management storage (Landmarks in 3D)
         # List of {'pt_glob': [x,y,z], 'des': descriptor, 'seen_count': int, 'last_seen': int}
         self.landmarks = []
@@ -71,8 +73,8 @@ class MapManager:
         # Remove landmarks (Quality metric = seen_count)
         self.landmarks = [
             lm for lm in self.landmarks 
-            if lm.seen_count > self.config.seen_count_threshold 
-            or (frame_index - lm.last_seen) < self.config.last_seen_threshold
+            if lm.seen_count > self.seen_count_threshold
+            or (frame_index - lm.last_seen) < self.last_seen_threshold
         ]
 
     def get_all_points_for_msg(self):

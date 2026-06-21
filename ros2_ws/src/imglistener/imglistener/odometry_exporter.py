@@ -15,12 +15,12 @@ class OdometryExporter(Node):
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
         self.csv_filename = f"odometry_export_{timestamp}.csv"
         
-        # Daten-Speicher
+        # Data Storage
         self.slam_data = {'timestamp': None, 'x': None, 'y': None, 'theta': None}
         self.wheel_data = {'timestamp': None, 'x': None, 'y': None, 'theta': None}
         self.imu_data = {'timestamp': None, 'theta': None}
         
-        # Kalibrierungs-Variablen (Fixe Referenzpunkte)
+        # Calibration variables
         self.imu_start_angle = None
         self.heading_offset = None
         self.wheel_start_pos = None # (x_raw, y_raw)
@@ -61,12 +61,12 @@ class OdometryExporter(Node):
         self.write_row()
     
     def wheel_callback(self, msg: Odometry):
-        # 1. Rohdaten OHNE manuellen Achsentausch (Matrix übernimmt die Ausrichtung)
+        # 1. Raw Data without any transformation
         raw_x = msg.pose.pose.position.x
         raw_y = msg.pose.pose.position.y
         raw_theta = self.quaternion_to_theta(msg.pose.pose.orientation)
         
-        # 2. Einmalige Kalibrierung beim Start
+        # 2. Inititating Calibration if not done yet
         if self.heading_offset is None:
             if self.slam_data['x'] is not None and self.slam_data['theta'] is not None:
                 # Wir fixieren die Startpunkte beider Systeme
@@ -78,22 +78,22 @@ class OdometryExporter(Node):
                 self.get_logger().info(f"Kalibrierung erfolgreich! Heading Offset: {self.heading_offset:.4f} rad")
             return # Warten bis SLAM-Referenz verfügbar ist
         
-        # 3. Relative Bewegung berechnen (Weg seit Start)
+        # 3. Calculate Relative Movement in Wheel Odometry since Start
         dx_raw = raw_x - self.wheel_start_pos[0]
         dy_raw = raw_y - self.wheel_start_pos[1]
         
-        # 4. Rotation der Bewegung in das SLAM-Koordinatensystem
+        # 4. Rotation to odometry frame and Heading Correction
         cos_phi = math.cos(self.heading_offset)
         sin_phi = math.sin(self.heading_offset)
         
         rotated_dx = dx_raw * cos_phi - dy_raw * sin_phi
         rotated_dy = dx_raw * sin_phi + dy_raw * cos_phi
         
-        # 5. Finale Position = SLAM-Startpunkt + rotierte relative Bewegung
+        # 5. Final Position = SLAM start point + rotated relative movement
         self.wheel_data['x'] = rotated_dx + self.slam_start_pos[0]
         self.wheel_data['y'] = rotated_dy + self.slam_start_pos[1]
         
-        # Winkel korrigieren und normieren auf [-pi, pi]
+        # Correct Angle and normalize to [-pi, pi]
         w_theta = raw_theta + self.heading_offset
         self.wheel_data['theta'] = math.atan2(math.sin(w_theta), math.cos(w_theta))
         
@@ -106,7 +106,7 @@ class OdometryExporter(Node):
         if self.imu_start_angle is None:
             self.imu_start_angle = raw_theta
             
-        # Differenz zum Startwert berechnen
+        # Calculate difference to start angle and normalize
         relative_theta = raw_theta - self.imu_start_angle
         # Normierung verhindert Sprünge am 180-Grad-Umbruch
         self.imu_data['theta'] = math.atan2(math.sin(relative_theta), math.cos(relative_theta))
@@ -114,7 +114,7 @@ class OdometryExporter(Node):
         self.write_row()
     
     def write_row(self):
-        # Nutze den Zeitstempel des aktuellsten sensorischen Updates
+        # Use current timestamps of the sensor
         ts_list = [d['timestamp'] for d in [self.slam_data, self.wheel_data, self.imu_data] if d['timestamp']]
         if not ts_list: return
         
