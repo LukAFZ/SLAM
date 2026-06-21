@@ -97,7 +97,7 @@ class SlamNode(Node):
 
     def listener_callback_depth(self, msg):
         # save depth frame for use in the RGB callback, convert to OpenCV format
-        self.depth_frame = self.bridge.imgmsg_to_cv2(msg, 'passthrough')
+        self.depth_frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
 
     def listener_callback_rgb(self, msg):
         if not self.lookup_static_tf() or self.depth_frame is None:
@@ -106,7 +106,7 @@ class SlamNode(Node):
         # Count to zero after an update to skip frames for stability
         if self.frame_counter <=0:
             # Convert ROS image message to OpenCV format
-            frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
+            frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='mono8')
 
             self.profiler.enable()
             # Slam processing in slam_core.py

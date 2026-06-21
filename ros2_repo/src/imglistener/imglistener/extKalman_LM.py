@@ -163,7 +163,7 @@ class ExtKalman:
             HPHT = np.matmul(self.JH, PHT)                      # HPH^\top
             S = HPHT + self.R  # Innovation covariance
             S_inv = np.linalg.inv(S)
-            S_det = np.linalg.det(S)
+            S_det = max(np.linalg.det(S), 1e-12)  # Avoid very small determinant for numerical stability
 
             exponent = -0.5 * innovation.T @ S_inv @ innovation
 

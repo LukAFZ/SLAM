@@ -13,6 +13,7 @@ class Robots:
     pose: RobotOdom2D
     robot: Robot
     likelihood: float = 0.0
+    log_weight: float = 0.0
 
 class VisualSLAMCore:
     def __init__(self):
@@ -21,7 +22,13 @@ class VisualSLAMCore:
         self.map_manager = MapManager(self.config)
         
         # Initiate ORB detector
-        self.orb = cv2.ORB_create(nfeatures=self.config.ORB_NFEATURES, patchSize=self.config.ORB_PATCH_SIZE)
+        self.orb = cv2.ORB_create(nfeatures=self.config.ORB_NFEATURES, 
+                                  patchSize=self.config.ORB_PATCH_SIZE,
+                                  edgeThreshold=self.config.ORB_EDGE_THRESHOLD,
+                                  fastThreshold=self.config.ORB_FAST_THRESHOLD,
+                                  WTA_K=self.config.ORB_WTA_K,
+                                  nlevels=self.config.ORB_NLEVELS,
+                                  scaleFactor=self.config.ORB_SCALE_FACTOR)
         self.bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
         
         # Roboter-Pose & Index-Tracking
@@ -122,18 +129,19 @@ class VisualSLAMCore:
                 #    log_r_l = log_r_l / len(des_clean) # normalize log likelihood by number of descriptors to avoid bias towards frames with more features
                 #else:
                 #    log_r_l = -700
-                log_robot_likelihood.append(log_r_l)
+                selected_robot.log_weight += log_r_l # accumulate log likelihood over time
+                #log_robot_likelihood.append(log_r_l)
 
 
-            max_log_l = max(log_robot_likelihood)
+            max_log_l = max(robot.log_weight for robot in self.robots) # find maximum log likelihood among all robots for numerical stability
 
 
             #BERECHNUNG STIMMT NOCH NICHT
             # 2. Ziehe das Maximum ab, bevor du die Exponentialfunktion anwendest.
             # Das verschiebt den besten Partikel auf log(w) = 0 -> w = e^0 = 1.0.
             for idx, robot in enumerate(self.robots):
-                print(f"Robot ID: {robot.id}, Log_Likelihood-Maximum: {log_robot_likelihood[idx] - max_log_l}")
-                robot.likelihood = np.exp(log_robot_likelihood[idx] - max_log_l)
+                print(f"Robot ID: {robot.id}, Log_Likelihood-Maximum des Roboters: {robot.log_weight - max_log_l}, Partikel Weight: {robot.log_weight}")
+                robot.likelihood = np.exp(robot.log_weight - max_log_l)
 
             # 3. Normarlisieren, damit die Summe aller Gewichte 1 ergibt
             total_weight = sum(robot.likelihood for robot in self.robots)
