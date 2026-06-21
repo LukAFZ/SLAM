@@ -1,5 +1,5 @@
 import cv2
-import math
+import copy
 import numpy as np
 from .algorithms import algorithms
 from .config import configurations
@@ -14,6 +14,15 @@ class Robots:
     robot: Robot
     likelihood: float = 0.0
     log_weight: float = 0.0
+
+    def clone(self, new_id: int):
+        return Robots(
+            id=new_id,
+            pose=RobotOdom2D(self.pose.x, self.pose.y, self.pose.theta),
+            robot=self.robot.clone(),
+            likelihood=1.0, 
+            log_weight=0.0  # Set back history
+        )
 
 class VisualSLAMCore:
     def __init__(self):
@@ -129,7 +138,7 @@ class VisualSLAMCore:
                 #    log_r_l = log_r_l / len(des_clean) # normalize log likelihood by number of descriptors to avoid bias towards frames with more features
                 #else:
                 #    log_r_l = -700
-                selected_robot.log_weight += log_r_l # accumulate log likelihood over time
+                selected_robot.log_weight += log_r_l/len(des_clean) # accumulate log likelihood over time
                 #log_robot_likelihood.append(log_r_l)
 
 
@@ -153,6 +162,16 @@ class VisualSLAMCore:
                 for robot in self.robots:
                     robot.likelihood = 1.0 / self.num_robots
 
+            #Resampling
+            # Calculate effective sample size to determine if resampling is needed (If the likelyhoods are too big in sum, it means that only a few particles have significant weight -> Resampling needed) 
+            sum_sq_weights = sum(r.likelihood ** 2 for r in self.robots)
+            n_eff = 1.0 / sum_sq_weights if sum_sq_weights > 0 else 0
+
+            # Wenn weniger als die Hälfte der Partikel "aussagekräftig" sind -> Resample!
+            if n_eff < (self.num_robots / 2.0):
+                print("Resampling particles...")
+                self.resample_particles()
+
             max_likelihood_robot = max(self.robots, key=lambda r: r.likelihood)
             print(f"Best robot ID: {max_likelihood_robot.id}, Max_Likelihood: {max_likelihood_robot.likelihood}")
 
@@ -170,3 +189,33 @@ class VisualSLAMCore:
         cv2.waitKey(1)
             
         return pose_updated, self.best_pose, best_map_manager
+    
+    def resample_particles(self):
+        """ Low Variance Resampling """
+        num_particles = self.num_robots
+        new_robots = []
+        
+        r = np.random.uniform(0, 1.0 / num_particles)
+        c = self.robots[0].likelihood
+        i = 0
+        
+        for m in range(num_particles):
+            U = r + m * (1.0 / num_particles)
+            while U > c:
+                i += 1
+                if i >= num_particles: 
+                    i = num_particles - 1
+                    break
+                c += self.robots[i].likelihood
+                
+            # WICHTIG: Deepcopy klont den gesamten Zustand (Karte, EKF, Pose)
+            cloned_robot = self.robots[i].clone(m)
+            
+            # Gewichte zurücksetzen! Nach dem Resampling sind alle wieder gleichwertig.
+            cloned_robot.likelihood = 1.0 / num_particles
+            cloned_robot.log_weight = 0.0 
+            cloned_robot.id = m 
+            
+            new_robots.append(cloned_robot)
+            
+        self.robots = new_robots

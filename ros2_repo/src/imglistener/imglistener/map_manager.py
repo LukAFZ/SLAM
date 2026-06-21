@@ -14,6 +14,15 @@ class Landmark:
     last_seen: int
     ekf: ExtKalman
 
+    def clone(self):
+        return Landmark(
+            pt_glob=Coordinate(self.pt_glob.x, self.pt_glob.y, self.pt_glob.z),
+            des=self.des.copy() if isinstance(self.des, np.ndarray) else self.des,
+            seen_count=self.seen_count,
+            last_seen=self.last_seen,
+            ekf=self.ekf.clone()
+        )
+
 class MapManager:
     def __init__(self, config):
         self.config = config
@@ -80,3 +89,9 @@ class MapManager:
     def get_all_points_for_msg(self):
         """get all landmark points in the format for PointCloud2 message"""
         return [[lm.pt_glob.x/1000.0, lm.pt_glob.y/1000.0, lm.pt_glob.z/1000.0] for lm in self.landmarks]
+    
+    def clone(self):
+        """Fast clone of the MapManager and all contained landmarks"""
+        new_mm = MapManager(self.config)
+        new_mm.landmarks = [lm.clone() for lm in self.landmarks]
+        return new_mm

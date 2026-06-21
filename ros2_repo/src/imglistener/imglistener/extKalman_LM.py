@@ -176,3 +176,15 @@ class ExtKalman:
         except np.linalg.LinAlgError:
             # Fallback block to guard against zero or singular determinant matrix crashes
             return self.fatal_error # very low likelihood in case of numerical issues to discourage this measurement update
+        
+    def clone(self):
+        """Fast clone of the EKF, including state, covariance, and Jacobians."""
+        new_ekf = ExtKalman(self.x.copy(), self.config)
+        if self.P is not None:
+            new_ekf.P = self.P.copy()
+        new_ekf.JF = self.JF.copy()
+        if hasattr(self, 'JH') and self.JH is not None:
+            new_ekf.JH = self.JH.copy()
+        if hasattr(self, 'R') and self.R is not None:
+            new_ekf.R = self.R.copy()
+        return new_ekf

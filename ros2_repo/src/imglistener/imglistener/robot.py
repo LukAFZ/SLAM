@@ -43,6 +43,13 @@ class Robot():
         self.algorithmen = algorithms()
         self.map_initialized = False
 
+    def clone(self):
+        """Erstellt einen neuen Roboter und kopiert nur die veränderlichen Zustände"""
+        new_robot = Robot() # Instanziiert automatisch frisch einen neuen BFMatcher!
+        new_robot.pose = RobotOdom2D(self.pose.x, self.pose.y, self.pose.theta)
+        new_robot.map_manager = self.map_manager.clone()
+        return new_robot
+
     def update_robot(self, kp_clean, des_clean, depth_frame, frame_index, base_to_kinect_matrix, local_robot_pts_3d, delta_R, delta_t, delta_theta):
         """
         Updaten eines Roboters basierend auf dem aktuellen Frame und der Karte mithilfe von Ransac, Kapschen Algorithmus und EKF-Updates für Landmarken.
