@@ -44,7 +44,7 @@ class Robot():
         self.map_initialized = False
 
     def clone(self):
-        """Erstellt einen neuen Roboter und kopiert nur die veränderlichen Zustände"""
+        """Creates a new robot and only copies the mutable states"""
         new_robot = Robot() # Instanziiert automatisch frisch einen neuen BFMatcher!
         new_robot.pose = RobotOdom2D(self.pose.x, self.pose.y, self.pose.theta)
         new_robot.map_manager = self.map_manager.clone()
@@ -52,7 +52,7 @@ class Robot():
 
     def update_robot(self, kp_clean, des_clean, depth_frame, frame_index, base_to_kinect_matrix, local_robot_pts_3d, delta_R, delta_t, delta_theta):
         """
-        Updaten eines Roboters basierend auf dem aktuellen Frame und der Karte mithilfe von Ransac, Kapschen Algorithmus und EKF-Updates für Landmarken.
+        Update of a robot based on the current frame and the map using RANSAC, Kabsch algorithm, and EKF updates for landmarks.
         """
         # Initial map creation
         #Calculate in Local Robot Coordinates
@@ -145,7 +145,7 @@ class Robot():
                             kalman_result, P, log_likelihood = lm.ekf.update(
                                 np.array(local_robot_pts_3d[train_idx]), 
                                 self.pose, 
-                                np.array([kp_clean[train_idx].pt[0], kp_clean[train_idx].pt[1]]), 
+                                np.array([kp_clean[train_idx].pt[0], kp_clean[train_idx].pt[1]]), # x and y pixel coordinates of the matched keypoint
                                 depth
                             )
 

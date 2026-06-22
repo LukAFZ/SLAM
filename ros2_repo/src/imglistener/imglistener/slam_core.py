@@ -130,7 +130,7 @@ class VisualSLAMCore:
                 Q_curr = np.array([local_robot_pts_3d[m.trainIdx][:2] for m in f2f_matches])
                 delta_R, delta_t, delta_theta = self.algo.ransac_refinement(P_prev, Q_curr)
 
-            log_robot_likelihood = []
+            #log_robot_likelihood = []
             for selected_robot in self.robots:
                 #best robot selection to be implemented here
                 pose_updated, selected_robot.pose, log_r_l = selected_robot.robot.update_robot(kp_clean, des_clean, depth_frame, frame_index, base_to_kinect_matrix, local_robot_pts_3d, delta_R, delta_t, delta_theta)
@@ -167,13 +167,14 @@ class VisualSLAMCore:
             sum_sq_weights = sum(r.likelihood ** 2 for r in self.robots)
             n_eff = 1.0 / sum_sq_weights if sum_sq_weights > 0 else 0
 
-            # Wenn weniger als die Hälfte der Partikel "aussagekräftig" sind -> Resample!
-            if n_eff < (self.num_robots / 2.0):
-                print("Resampling particles...")
-                self.resample_particles()
 
             max_likelihood_robot = max(self.robots, key=lambda r: r.likelihood)
             print(f"Best robot ID: {max_likelihood_robot.id}, Max_Likelihood: {max_likelihood_robot.likelihood}")
+
+            # If less than half of the particles have significant weight, resample 
+            if n_eff < (self.num_robots / 2.0):
+                print("Resampling particles...")
+                self.resample_particles()
 
             self.best_pose = max_likelihood_robot.pose
             best_map_manager = max_likelihood_robot.robot.map_manager
@@ -199,7 +200,9 @@ class VisualSLAMCore:
         c = self.robots[0].likelihood
         i = 0
         
+        # Loop over the number of particles
         for m in range(num_particles):
+            # Calculate the threshold for resampling and find the corresponding particle index by moving through the cumulative distribution of likelihoods
             U = r + m * (1.0 / num_particles)
             while U > c:
                 i += 1
@@ -208,10 +211,10 @@ class VisualSLAMCore:
                     break
                 c += self.robots[i].likelihood
                 
-            # WICHTIG: Deepcopy klont den gesamten Zustand (Karte, EKF, Pose)
+            # Cloning process
             cloned_robot = self.robots[i].clone(m)
             
-            # Gewichte zurücksetzen! Nach dem Resampling sind alle wieder gleichwertig.
+            # Set back likelihood and log_weight for the new robot
             cloned_robot.likelihood = 1.0 / num_particles
             cloned_robot.log_weight = 0.0 
             cloned_robot.id = m 
