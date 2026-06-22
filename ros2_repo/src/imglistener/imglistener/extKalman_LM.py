@@ -37,6 +37,10 @@ class ExtKalman:
         
     # set Jacobi Matrix of the measurement function
     def set_JH(self, c, s):
+        """
+        The Jacobian matrix JH represents the differentiated measurement function that maps the landmark's position from world coordinates (Odom frame) to the robot's local coordinates (Base frame). 
+        It is used to project the state covariance matrix P into the measurement space (Base frame), accounting for the current rotation of the robot.
+        """
         #Transformierte JH Matrix
         self.JH = np.array([[c, s, 0.0],
                             [-s, c, 0.0],
@@ -46,7 +50,7 @@ class ExtKalman:
     def set_R(self, pt, depth_value, c, s):
         """
         Calculate the measurement noise covariance R based on the depth value and the camera intrinsics. The measurement noise in pixel space is approximated as a function of the depth, 
-        and then transformed to 3D space using the Jacobian of the measurement function and the rotation from Kinect to base coordinates.
+        and then transformed to 3D space (Base frame) using the Jacobian of the measurement function and the rotation from Kinect to base coordinates.
         """
         s_z, s_x = self.sigma_R_approximation(depth_value)
 
@@ -90,12 +94,13 @@ class ExtKalman:
     # return measurement prediction (\hat z_{t|t-1})
     def predict_measurement(self, curr_pose, c, s):
         """
-        Predict the Measurement by substracting the pose position from the landmark position and transforming it to odom
+        Predict the Measurement by substracting the pose position from the landmark position and transforming it to base coordinates
         """
-        #Calculate Matrix R_T (to odom) * (Current Landmark position - Robot position)
-		#R = ([[c ,  -s, 0.0],       
-		#     [s  ,   c, 0.0],   ^T 
-	    #	  [0.0, 0.0, 1.0]])
+        #Calculate Matrix R_T (to base) * (Current Landmark position - Robot position)
+        #R^1 = R.T because R is orthogonal
+		#R = ([[c ,  -s, 0.0],       [x_l - x_r]
+		#     [s  ,   c, 0.0],   ^T  [y_l - y_r]
+	    #	  [0.0, 0.0, 1.0]])      [z_l - z_r]
 
         pmeas = np.array([c*(self.x[0]-curr_pose.x)+s*(self.x[1]-curr_pose.y),
                          -s*(self.x[0]-curr_pose.x)+c*(self.x[1]-curr_pose.y),
@@ -151,6 +156,10 @@ class ExtKalman:
         return self.x, self.P, likelihood
     
     def sigma_R_approximation(self, depth_value: float):
+        """
+        Approximate the measurement noise covariance R based on the depth value. The approximation is based on empirical observations of the Kinect sensor's noise characteristics
+        Return the approximated noise covariance matrix for depth and lateral measurements in 3D space, given the depth value in millimeters.
+        """
         #a-> constant offset (noise at minimum distance)
         #b→ quadratic offset
         a = self.a
