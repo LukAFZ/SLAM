@@ -184,7 +184,7 @@ class ExtKalman:
 
         try:
             PHT = np.matmul(self.P, self.JH.transpose())         # PH^\top
-            HPHT = np.matmul(self.JH, PHT)                      # HPH^\top
+            HPHT = np.matmul(self.JH, PHT)                      # HPH^\top | HPHT = JH * P * JH.T
             S = HPHT + self.R  # Innovation covariance
             S_inv = np.linalg.inv(S)
             S_det = max(np.linalg.det(S), 1e-12)  # Avoid very small determinant for numerical stability
@@ -193,6 +193,7 @@ class ExtKalman:
 
             #likelihood = (1.0 / np.sqrt(((2 * np.pi) ** 3) * S_det)) * np.exp(exponent)
             log_likelihood = -0.5 * (3 * np.log(2 * np.pi) + np.log(S_det)) + exponent
+            #log_likelihood = np.log(likelihood)  # Log-likelihood for numerical stability
 
             #print(f"Landmark Likelihood: {log_likelihood:.6f}")
             #print(f"innovation={z-z_tt1}, sqrt(diag(S))={np.sqrt(np.diag(S))}, P_diag={np.diag(self.P)}")

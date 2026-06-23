@@ -233,12 +233,50 @@ class algorithms:
         # Get indices of visible landmarks
         visible_indices = np.where(visible_mask)[0]
         
-        #Collect descriptors and global positions of visible landmarks
+        # Collect descriptors and global positions of visible landmarks
         visible_des = [map_landmarks[i].des for i in visible_indices]
         visible_pts_glob_2d = [(map_landmarks[i].pt_glob.x, map_landmarks[i].pt_glob.y) for i in visible_indices]
         visible_map_indices = visible_indices.tolist()
 
         return visible_des, visible_pts_glob_2d, visible_map_indices
+    
+    def resample_particles(self, num_robots, robots):
+        """Multinomial Resampling"""
+        num_particles = num_robots
+        new_robots = []
+            
+        # Generate N independent samples u in the range [0, 1]
+        u_samples = np.random.uniform(0.0, 1.0, num_particles)
+            
+        # Sort the random numbers for more efficient searching (O(N))  
+        u_samples.sort()
+            
+        # Start with the first particle and its cumulative weight
+        c = robots[0].likelihood
+        i = 0
+            
+        # Loop over all particles and select the corresponding particle based on the random sample u
+        for m in range(num_particles):
+            u = u_samples[m]
+                
+            # As long as the rolled number u is greater than the current bar limit c, move further to the right in the distribution
+            while u > c:
+                i += 1
+                if i >= num_particles: 
+                    i = num_particles - 1
+                    break
+                c += robots[i].likelihood
+                    
+            # Clone only the robots with
+            cloned_robot = robots[i].clone(m)
+                
+            # Set Back the likelihood and log_weight of the cloned robot to uniform values for the next iteration
+            cloned_robot.likelihood = 1.0 / num_particles
+            cloned_robot.log_weight = 0.0 
+            cloned_robot.id = m 
+                
+            new_robots.append(cloned_robot)
+        return new_robots 
 
     
     def normalize_angle(self,angle: float) -> float:
