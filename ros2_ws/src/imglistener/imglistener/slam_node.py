@@ -62,7 +62,7 @@ class SlamNode(Node):
 
         self.profiler = cProfile.Profile()
     def lookup_static_tf(self):
-        """lookup the static TF from kinect_depth to base_link and initialize the transformation matrices for coordinate transformations between the kinect frame and the robot's base frame."""
+        """Lookup the static TF from kinect_depth to base_link and initialize the transformation matrices for coordinate transformations between the kinect frame and the robot's base frame."""
         # Initialize the transformation matrix if not already done
         if self.kinect_to_base_matrix is None:
             try:
@@ -96,17 +96,23 @@ class SlamNode(Node):
         return True
 
     def listener_callback_depth(self, msg):
+        """
+        Listener callback for depth images. This function saves the incoming depth image for use in the RGB callback.
+        """
         # save depth frame for use in the RGB callback, convert to OpenCV format
-        self.depth_frame = self.bridge.imgmsg_to_cv2(msg, 'passthrough')
+        self.depth_frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='passthrough')
 
     def listener_callback_rgb(self, msg):
+        """
+        Listener callback for RGB images. This function processes the incoming RGB image, performs SLAM processing, and publishes the updated pose and map if available.
+        """
         if not self.lookup_static_tf() or self.depth_frame is None:
             #implement solution if fail
             return
         # Count to zero after an update to skip frames for stability
         if self.frame_counter <=0:
             # Convert ROS image message to OpenCV format
-            frame = self.bridge.imgmsg_to_cv2(msg, 'bgr8')
+            frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='mono8')
 
             self.profiler.enable()
             # Slam processing in slam_core.py
@@ -143,6 +149,9 @@ class SlamNode(Node):
         print(f"Frame Index: {self.frame_index}, Frame Counter: {self.frame_counter}")
 
     def publish_tf(self, x, y, theta, stamp):
+        """
+        Publish TF Message
+        """
         t = TransformStamped()
         t.header.stamp = stamp
         t.header.frame_id = self.odom_frame
@@ -165,6 +174,9 @@ class SlamNode(Node):
 
     #virtuelle Roboter
     def publish_robots_tf_array(self, robots_list, stamp):
+        """
+        Publish the array of TF messages for all virtual robots in the list. Each robot will have its own unique child frame ID based on its ID.
+        """
         # Eine leere Liste für alle Transformationen erstellen
         tf_messages = []
         current_time = self.get_clock().now().to_msg()
@@ -202,6 +214,9 @@ class SlamNode(Node):
             self.tf_broadcaster.sendTransform(tf_messages)
 
     def publish_odometry_msg(self, x, y, theta, stamp):
+        """
+        Publish Odometry Message
+        """
         msg = Odometry()
         
         # Header
@@ -245,6 +260,9 @@ class SlamNode(Node):
         self.odom_publisher.publish(msg)    
 
 def main(args=None):
+    """
+    Initialize the ROS2 node
+    """
     rclpy.init(args=args)
     node = SlamNode()
     rclpy.spin(node)

@@ -37,6 +37,10 @@ class ExtKalman:
         
     # set Jacobi Matrix of the measurement function
     def set_JH(self, c, s):
+        """
+        The Jacobian matrix JH represents the differentiated measurement function that maps the landmark's position from world coordinates (Odom frame) to the robot's local coordinates (Base frame). 
+        It is used to project the state covariance matrix P into the measurement space (Base frame), accounting for the current rotation of the robot.
+        """
         #Transformierte JH Matrix
         self.JH = np.array([[c, s, 0.0],
                             [-s, c, 0.0],
@@ -44,6 +48,10 @@ class ExtKalman:
 
     # set measurement noise -- eg. for EKF
     def set_R(self, pt, depth_value, c, s):
+        """
+        Calculate the measurement noise covariance R based on the depth value and the camera intrinsics. The measurement noise in pixel space is approximated as a function of the depth, 
+        and then transformed to 3D space (Base frame) using the Jacobian of the measurement function and the rotation from Kinect to base coordinates.
+        """
         s_z, s_x = self.sigma_R_approximation(depth_value)
 
         #Guaranteed minimum error in 2D pixel space, transformed to 3D space by the Jacobian of the measurement function
@@ -74,6 +82,10 @@ class ExtKalman:
         self.Q = Q
 
     def predict_state(self):
+        """
+        Predict the state and the covariance of the landmark EKF. Since the landmark is static, the state prediction is just the current state, 
+        and the covariance prediction is the current covariance transformed by the Jacobian of the state transition
+        """
         #pstate = self.state_func(self.x)
         pstate = self.x
         pP = np.matmul(self.JF, np.matmul(self.P, self.JF.transpose()))+self.Q
@@ -81,10 +93,14 @@ class ExtKalman:
 
     # return measurement prediction (\hat z_{t|t-1})
     def predict_measurement(self, curr_pose, c, s):
-        #Calculate Matrix R_T (to odom) * (Current Landmark position - Robot position)
-		#R = ([[c ,  -s, 0.0],       
-		#     [s  ,   c, 0.0],   ^T 
-	    #	  [0.0, 0.0, 1.0]])
+        """
+        Predict the Measurement by substracting the pose position from the landmark position and transforming it to base coordinates
+        """
+        #Calculate Matrix R_T (to base) * (Current Landmark position - Robot position)
+        #R^1 = R.T because R is orthogonal
+		#R = ([[c ,  -s, 0.0],       [x_l - x_r]
+		#     [s  ,   c, 0.0],   ^T  [y_l - y_r]
+	    #	  [0.0, 0.0, 1.0]])      [z_l - z_r]
 
         pmeas = np.array([c*(self.x[0]-curr_pose.x)+s*(self.x[1]-curr_pose.y),
                          -s*(self.x[0]-curr_pose.x)+c*(self.x[1]-curr_pose.y),
@@ -93,8 +109,9 @@ class ExtKalman:
     
     # return matrix K
     def compute_kalman_gain(self):
-        
-        
+        """
+        Compute the Kalman Gain
+        """
         PHT = np.matmul(self.P, self.JH.transpose())         # PH^\top
         HPHT = np.matmul(self.JH, PHT)                      # HPH^\top
         HPHTpRi = np.linalg.inv(HPHT + self.R)             # (HPH^\top + R)^{-1}
@@ -107,6 +124,9 @@ class ExtKalman:
 
     # Update self.x and self.P, return tuple (x_{t|t}, P_{t_t})
     def update(self, z, curr_pose: RobotOdom2D, pt, depth_value):
+        """
+        Update step of the Landmark EKF
+        """
 
         c = cos(curr_pose.theta)
         s = sin(curr_pose.theta)
@@ -114,7 +134,7 @@ class ExtKalman:
         self.set_R(pt, depth_value, c, s)
 
         if self.P is None:
-            # Erste Beobachtung: P = Messunsicherheit (in den passenden Koordinaten)
+            # First Measurement: P = Measurementcovariance
             self.P = self.R.copy()
 
         #print("State:", self.x)
@@ -136,16 +156,20 @@ class ExtKalman:
         return self.x, self.P, likelihood
     
     def sigma_R_approximation(self, depth_value: float):
-        #a→ konstanter Offset (Rauschen bei minimalem Abstand)
-        #b→ quadratischer Koeffizient (fitted)
+        """
+        Approximate the measurement noise covariance R based on the depth value. The approximation is based on empirical observations of the Kinect sensor's noise characteristics
+        Return the approximated noise covariance matrix for depth and lateral measurements in 3D space, given the depth value in millimeters.
+        """
+        #a-> constant offset (noise at minimum distance)
+        #b→ quadratic offset
         a = self.a
         b = self.b
 
         depth_m = depth_value / 1000.0 # convert to meters
-         # Tiefenfehler (d^2 für Kinect structured light)
+         # Error for depth (d^2 für Kinect structured light)
         s_z_m = a + b * (depth_m - 0.4)**2
         s_z = s_z_m * 1000 # in mm
-        # Lateraler Fehler (Bogenlänge, ~0.086° Auflösung)
+        # Lateral error (~0.086° Resolution)
         s_x = self.s_x
 
 
@@ -153,8 +177,8 @@ class ExtKalman:
 
     def compute_measurement_likelihood(self, z, z_tt1):
         """
-        Berechne die Wahrscheinlichkeit der Messung z gegeben der vorhergesagten Messung z_tt1 und der Messrauschen-Kovarianz R.
-        Die Berechnung basiert auf der multivariaten Normalverteilung, wobei die Innovation (z - z_tt1) und die Kovarianz R verwendet werden, um die Likelihood zu bestimmen.
+        Calculate the probability of the measurement z given the predicted measurement z_tt1 and the measurement noise covariance R.
+        The calculation is based on the multivariate normal distribution, using the innovation (z - z_tt1) and the covariance R to determine the likelihood.
         """
         innovation = (z - z_tt1)
 
@@ -163,7 +187,7 @@ class ExtKalman:
             HPHT = np.matmul(self.JH, PHT)                      # HPH^\top
             S = HPHT + self.R  # Innovation covariance
             S_inv = np.linalg.inv(S)
-            S_det = np.linalg.det(S)
+            S_det = max(np.linalg.det(S), 1e-12)  # Avoid very small determinant for numerical stability
 
             exponent = -0.5 * innovation.T @ S_inv @ innovation
 
@@ -176,3 +200,15 @@ class ExtKalman:
         except np.linalg.LinAlgError:
             # Fallback block to guard against zero or singular determinant matrix crashes
             return self.fatal_error # very low likelihood in case of numerical issues to discourage this measurement update
+        
+    def clone(self):
+        """Fast clone of the EKF, including state, covariance, and Jacobians."""
+        new_ekf = ExtKalman(self.x.copy(), self.config)
+        if self.P is not None:
+            new_ekf.P = self.P.copy()
+        new_ekf.JF = self.JF.copy()
+        if hasattr(self, 'JH') and self.JH is not None:
+            new_ekf.JH = self.JH.copy()
+        if hasattr(self, 'R') and self.R is not None:
+            new_ekf.R = self.R.copy()
+        return new_ekf

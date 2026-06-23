@@ -1,5 +1,5 @@
 import cv2
-import math
+import copy
 import numpy as np
 from .algorithms import algorithms
 from .config import configurations
@@ -13,6 +13,16 @@ class Robots:
     pose: RobotOdom2D
     robot: Robot
     likelihood: float = 0.0
+    log_weight: float = 0.0
+
+    def clone(self, new_id: int):
+        return Robots(
+            id=new_id,
+            pose=RobotOdom2D(self.pose.x, self.pose.y, self.pose.theta),
+            robot=self.robot.clone(),
+            likelihood=1.0, 
+            log_weight=0.0  # Set back history
+        )
 
 class VisualSLAMCore:
     def __init__(self):
@@ -21,7 +31,13 @@ class VisualSLAMCore:
         self.map_manager = MapManager(self.config)
         
         # Initiate ORB detector
-        self.orb = cv2.ORB_create(nfeatures=self.config.ORB_NFEATURES, patchSize=self.config.ORB_PATCH_SIZE)
+        self.orb = cv2.ORB_create(nfeatures=self.config.ORB_NFEATURES, 
+                                  patchSize=self.config.ORB_PATCH_SIZE,
+                                  edgeThreshold=self.config.ORB_EDGE_THRESHOLD,
+                                  fastThreshold=self.config.ORB_FAST_THRESHOLD,
+                                  WTA_K=self.config.ORB_WTA_K,
+                                  nlevels=self.config.ORB_NLEVELS,
+                                  scaleFactor=self.config.ORB_SCALE_FACTOR)
         self.bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
         
         # Roboter-Pose & Index-Tracking
@@ -114,7 +130,7 @@ class VisualSLAMCore:
                 Q_curr = np.array([local_robot_pts_3d[m.trainIdx][:2] for m in f2f_matches])
                 delta_R, delta_t, delta_theta = self.algo.ransac_refinement(P_prev, Q_curr)
 
-            log_robot_likelihood = []
+            #log_robot_likelihood = []
             for selected_robot in self.robots:
                 #best robot selection to be implemented here
                 pose_updated, selected_robot.pose, log_r_l = selected_robot.robot.update_robot(kp_clean, des_clean, depth_frame, frame_index, base_to_kinect_matrix, local_robot_pts_3d, delta_R, delta_t, delta_theta)
@@ -122,31 +138,45 @@ class VisualSLAMCore:
                 #    log_r_l = log_r_l / len(des_clean) # normalize log likelihood by number of descriptors to avoid bias towards frames with more features
                 #else:
                 #    log_r_l = -700
-                log_robot_likelihood.append(log_r_l)
+                selected_robot.log_weight = log_r_l/len(des_clean) # accumulate log likelihood over time
+                #log_robot_likelihood.append(log_r_l)
 
 
-            max_log_l = max(log_robot_likelihood)
+            max_log_l = max(robot.log_weight for robot in self.robots) # find maximum log likelihood among all robots for numerical stability (underflow prevention)
 
-
-            #BERECHNUNG STIMMT NOCH NICHT
-            # 2. Ziehe das Maximum ab, bevor du die Exponentialfunktion anwendest.
-            # Das verschiebt den besten Partikel auf log(w) = 0 -> w = e^0 = 1.0.
+            # Subtract the maximum log likelihood from each robot's log likelihood to prevent numerical underflow when exponentiating.
+            # This shifts the best particle to log(w) = 0 -> w = e^0 = 1.0.
             for idx, robot in enumerate(self.robots):
-                print(f"Robot ID: {robot.id}, Log_Likelihood-Maximum: {log_robot_likelihood[idx] - max_log_l}")
-                robot.likelihood = np.exp(log_robot_likelihood[idx] - max_log_l)
+                robot.likelihood = np.exp(robot.log_weight - max_log_l)
+                print(f"Robot ID: {robot.id}, Log_Likelihood-Maximum des Roboters: {robot.log_weight - max_log_l}, Partikel Weight: {robot.likelihood}")
 
-            # 3. Normarlisieren, damit die Summe aller Gewichte 1 ergibt
+            # Normalize the likelihoods to ensure they sum to 1.0
             total_weight = sum(robot.likelihood for robot in self.robots)
             if total_weight > 0:
                 for robot in self.robots:
                     robot.likelihood /= total_weight
             else:
-                # Falls alle Likelihoods 0 sind, setze sie gleichmäßig auf 1/N
+                # If all likelihoods are zero (which shouldn't happen), reset to uniform distribution
                 for robot in self.robots:
                     robot.likelihood = 1.0 / self.num_robots
 
+            # Resampling
+            # Calculate effective sample size to determine if resampling is needed (If the likelyhoods are too big in sum, it means that only a few particles have significant weight -> Resampling needed) 
+            sum_sq_weights = sum(r.likelihood ** 2 for r in self.robots)
+            print("Sum of Squared Weights:", sum_sq_weights)
+            if sum_sq_weights > 0:
+                n_eff = 1.0 / sum_sq_weights
+            else:
+                n_eff = 0
+            print("Effective Sample Size (N_eff):", n_eff)
+
             max_likelihood_robot = max(self.robots, key=lambda r: r.likelihood)
             print(f"Best robot ID: {max_likelihood_robot.id}, Max_Likelihood: {max_likelihood_robot.likelihood}")
+
+            # If less than half of the particles have significant weight, resample 
+            if n_eff < (self.num_robots / 2.0):
+                print("Resampling particles...")
+                self.resample_particles()
 
             self.best_pose = max_likelihood_robot.pose
             best_map_manager = max_likelihood_robot.robot.map_manager
@@ -162,3 +192,35 @@ class VisualSLAMCore:
         cv2.waitKey(1)
             
         return pose_updated, self.best_pose, best_map_manager
+    
+    def resample_particles(self):
+        """ Low Variance Resampling """
+        num_particles = self.num_robots
+        new_robots = []
+        
+        r = np.random.uniform(0, 1.0 / num_particles)
+        c = self.robots[0].likelihood
+        i = 0
+        
+        # Loop over the number of particles
+        for m in range(num_particles):
+            # Calculate the threshold for resampling and find the corresponding particle index by moving through the cumulative distribution of likelihoods
+            U = r + m * (1.0 / num_particles)
+            while U > c:
+                i += 1
+                if i >= num_particles: 
+                    i = num_particles - 1
+                    break
+                c += self.robots[i].likelihood
+                
+            # Cloning process
+            cloned_robot = self.robots[i].clone(m)
+            
+            # Set back likelihood and log_weight for the new robot
+            cloned_robot.likelihood = 1.0 / num_particles
+            cloned_robot.log_weight = 0.0 
+            cloned_robot.id = m 
+            
+            new_robots.append(cloned_robot)
+            
+        self.robots = new_robots

@@ -43,9 +43,16 @@ class Robot():
         self.algorithmen = algorithms()
         self.map_initialized = False
 
+    def clone(self):
+        """Creates a new robot and only copies the mutable states"""
+        new_robot = Robot() # Instanziiert automatisch frisch einen neuen BFMatcher!
+        new_robot.pose = RobotOdom2D(self.pose.x, self.pose.y, self.pose.theta)
+        new_robot.map_manager = self.map_manager.clone()
+        return new_robot
+
     def update_robot(self, kp_clean, des_clean, depth_frame, frame_index, base_to_kinect_matrix, local_robot_pts_3d, delta_R, delta_t, delta_theta):
         """
-        Updaten eines Roboters basierend auf dem aktuellen Frame und der Karte mithilfe von Ransac, Kapschen Algorithmus und EKF-Updates für Landmarken.
+        Update of a robot based on the current frame and the map using RANSAC, Kabsch algorithm, and EKF updates for landmarks.
         """
         # Initial map creation
         #Calculate in Local Robot Coordinates
@@ -138,7 +145,7 @@ class Robot():
                             kalman_result, P, log_likelihood = lm.ekf.update(
                                 np.array(local_robot_pts_3d[train_idx]), 
                                 self.pose, 
-                                np.array([kp_clean[train_idx].pt[0], kp_clean[train_idx].pt[1]]), 
+                                np.array([kp_clean[train_idx].pt[0], kp_clean[train_idx].pt[1]]), # x and y pixel coordinates of the matched keypoint
                                 depth
                             )
 
@@ -147,8 +154,6 @@ class Robot():
                             self.map_manager.landmarks[map_idx]
                             lm.pt_glob = Coordinate(x=kalman_result[0], y=kalman_result[1], z=kalman_result[2])
                             accepted_inlier_count += 1
-                            #z_pt = local_robot_pts_3d[train_idx][:2]
-                            #depth_val = local_robot_pts_3d[train_idx][2]
                         else:
                             #Match is rejected as outlier by RANSAC, penalize likelihood
                             log_robot_likelihood += self.fatal_error # penalize outliers in the likelihood calculation
@@ -157,10 +162,6 @@ class Robot():
                         local_robot_pts_3d, des_clean, matched_curr_indices, 
                         self.pose, frame_index
                     )
-                    
-                    # Penalty for to few inliers to avoid accepting bad pose updates
-                    missing_inliers = len(matches) - accepted_inlier_count
-                    log_robot_likelihood += missing_inliers * self.fatal_error
 
                     # remove old landmarks that are not seen anymore
                     self.map_manager.clean_map(frame_index)
