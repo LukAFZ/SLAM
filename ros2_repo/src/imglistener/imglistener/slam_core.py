@@ -138,35 +138,37 @@ class VisualSLAMCore:
                 #    log_r_l = log_r_l / len(des_clean) # normalize log likelihood by number of descriptors to avoid bias towards frames with more features
                 #else:
                 #    log_r_l = -700
-                selected_robot.log_weight += log_r_l/len(des_clean) # accumulate log likelihood over time
+                selected_robot.log_weight = log_r_l/len(des_clean) # accumulate log likelihood over time
                 #log_robot_likelihood.append(log_r_l)
 
 
-            max_log_l = max(robot.log_weight for robot in self.robots) # find maximum log likelihood among all robots for numerical stability
+            max_log_l = max(robot.log_weight for robot in self.robots) # find maximum log likelihood among all robots for numerical stability (underflow prevention)
 
-
-            #BERECHNUNG STIMMT NOCH NICHT
-            # 2. Ziehe das Maximum ab, bevor du die Exponentialfunktion anwendest.
-            # Das verschiebt den besten Partikel auf log(w) = 0 -> w = e^0 = 1.0.
+            # Subtract the maximum log likelihood from each robot's log likelihood to prevent numerical underflow when exponentiating.
+            # This shifts the best particle to log(w) = 0 -> w = e^0 = 1.0.
             for idx, robot in enumerate(self.robots):
-                print(f"Robot ID: {robot.id}, Log_Likelihood-Maximum des Roboters: {robot.log_weight - max_log_l}, Partikel Weight: {robot.log_weight}")
                 robot.likelihood = np.exp(robot.log_weight - max_log_l)
+                print(f"Robot ID: {robot.id}, Log_Likelihood-Maximum des Roboters: {robot.log_weight - max_log_l}, Partikel Weight: {robot.likelihood}")
 
-            # 3. Normarlisieren, damit die Summe aller Gewichte 1 ergibt
+            # Normalize the likelihoods to ensure they sum to 1.0
             total_weight = sum(robot.likelihood for robot in self.robots)
             if total_weight > 0:
                 for robot in self.robots:
                     robot.likelihood /= total_weight
             else:
-                # Falls alle Likelihoods 0 sind, setze sie gleichmäßig auf 1/N
+                # If all likelihoods are zero (which shouldn't happen), reset to uniform distribution
                 for robot in self.robots:
                     robot.likelihood = 1.0 / self.num_robots
 
-            #Resampling
+            # Resampling
             # Calculate effective sample size to determine if resampling is needed (If the likelyhoods are too big in sum, it means that only a few particles have significant weight -> Resampling needed) 
             sum_sq_weights = sum(r.likelihood ** 2 for r in self.robots)
-            n_eff = 1.0 / sum_sq_weights if sum_sq_weights > 0 else 0
-
+            print("Sum of Squared Weights:", sum_sq_weights)
+            if sum_sq_weights > 0:
+                n_eff = 1.0 / sum_sq_weights
+            else:
+                n_eff = 0
+            print("Effective Sample Size (N_eff):", n_eff)
 
             max_likelihood_robot = max(self.robots, key=lambda r: r.likelihood)
             print(f"Best robot ID: {max_likelihood_robot.id}, Max_Likelihood: {max_likelihood_robot.likelihood}")

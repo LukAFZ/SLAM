@@ -10,7 +10,7 @@ class configurations():
         self.PCL_TOPIC = '/serf01/nav_rgbd_1/pointcloud'
         self.ODOM_TOPIC = '/serf01/odometry/project_slam'
 
-        self.NUM_ROBOTS = 10 #Count of Robots to be initialized in the system, if 0 or less, only one robot will be initialized (for single-robot SLAM)
+        self.NUM_ROBOTS = 25 #Count of Robots to be initialized in the system, if 0 or less, only one robot will be initialized (for single-robot SLAM)
 
         #ORB Configuration
         self.ORB_NFEATURES = 1000 #Standard 500
@@ -57,4 +57,4 @@ class configurations():
         self.B = 0.002294 #Coefficient b for depth error approximation (quadratic term)
         self.S_X = 0.8/3 # Lateral Error
 
-        self.PARTICLE_FILTER_FAIL_STANDARD_ERROR = -70000 #Error for Log-Likelyhood to penaltize particle filter updates that fail (e.g., due to too few matches or RANSAC failure)
+        self.PARTICLE_FILTER_FAIL_STANDARD_ERROR = -20 #Error for Log-Likelyhood to penaltize particle filter updates that fail (e.g., due to too few matches or RANSAC failure)

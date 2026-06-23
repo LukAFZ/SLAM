@@ -154,8 +154,6 @@ class Robot():
                             self.map_manager.landmarks[map_idx]
                             lm.pt_glob = Coordinate(x=kalman_result[0], y=kalman_result[1], z=kalman_result[2])
                             accepted_inlier_count += 1
-                            #z_pt = local_robot_pts_3d[train_idx][:2]
-                            #depth_val = local_robot_pts_3d[train_idx][2]
                         else:
                             #Match is rejected as outlier by RANSAC, penalize likelihood
                             log_robot_likelihood += self.fatal_error # penalize outliers in the likelihood calculation
@@ -164,10 +162,6 @@ class Robot():
                         local_robot_pts_3d, des_clean, matched_curr_indices, 
                         self.pose, frame_index
                     )
-                    
-                    # Penalty for to few inliers to avoid accepting bad pose updates
-                    missing_inliers = len(matches) - accepted_inlier_count
-                    log_robot_likelihood += missing_inliers * self.fatal_error
 
                     # remove old landmarks that are not seen anymore
                     self.map_manager.clean_map(frame_index)
