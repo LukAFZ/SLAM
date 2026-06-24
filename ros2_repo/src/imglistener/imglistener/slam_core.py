@@ -132,7 +132,7 @@ class VisualSLAMCore:
             #log_robot_likelihood = []
             for selected_robot in self.robots:
                 #best robot selection to be implemented here
-                pose_updated, selected_robot.pose, log_r_l = selected_robot.robot.update_robot(kp_clean, des_clean, depth_frame, frame_index, base_to_kinect_matrix, local_robot_pts_3d, delta_R, delta_t, delta_theta)
+                pose_updated, selected_robot.pose, log_r_l = selected_robot.robot.update_robot(kp_clean, des_clean, depth_frame, frame_index, base_to_kinect_matrix, kinect_to_base_matrix, local_robot_pts_3d, delta_R, delta_t, delta_theta)
                 #if len(des_clean) > 0:
                 #    log_r_l = log_r_l / len(des_clean) # normalize log likelihood by number of descriptors to avoid bias towards frames with more features
                 #else:

@@ -40,7 +40,7 @@ class Robot():
 
         self.pose = RobotOdom2D(x=0.0, y=0.0, theta=0.0)
 
-        self.algorithmen = algorithms()
+        self.algo = algorithms()
         self.map_initialized = False
 
     def clone(self):
@@ -50,19 +50,19 @@ class Robot():
         new_robot.map_manager = self.map_manager.clone()
         return new_robot
 
-    def update_robot(self, kp_clean, des_clean, depth_frame, frame_index, base_to_kinect_matrix, local_robot_pts_3d, delta_R, delta_t, delta_theta):
+    def update_robot(self, kp_clean, des_clean, depth_frame, frame_index, base_to_kinect_matrix, kinect_to_base_matrix, local_robot_pts_3d, delta_R, delta_t, delta_theta):
         """
         Update of a robot based on the current frame and the map using RANSAC, Kabsch algorithm, and EKF updates for landmarks.
         """
         # Initial map creation
         #Calculate in Local Robot Coordinates
         if self.map_manager.is_empty() and not self.map_initialized:
-            self.map_manager.initialize_map(local_robot_pts_3d, des_clean, frame_index)
+            self.map_manager.initialize_map(local_robot_pts_3d, des_clean, frame_index, kinect_to_base_matrix)
             self.map_initialized = True
  
 
         # Viewing Cone - filter landmarks that are in the field of view of the robot
-        visible_des, visible_pts_glob_2d, visible_map_indices = self.algorithmen.test_only_for_visible_landmarks(self.map_manager.landmarks, self.pose, base_to_kinect_matrix)
+        visible_des, visible_pts_glob_2d, visible_map_indices = self.algo.test_only_for_visible_landmarks(self.map_manager.landmarks, self.pose, base_to_kinect_matrix)
         
         log_robot_likelihood = 0.0
         pose_updated = False
@@ -83,7 +83,7 @@ class Robot():
                     pt_glob = visible_pts_glob_2d[match.queryIdx] # Landmark position in global coordinates (odom)
 
                     # transform global landmark position to local robot coordinates for the matched landmark
-                    lx, ly = self.algorithmen.transform_delta_odom_to_local_robot_coords(Coordinate(pt_glob[0], pt_glob[1], z=0), self.pose)
+                    lx, ly = self.algo.transform_delta_odom_to_local_robot_coords(Coordinate(pt_glob[0], pt_glob[1], z=0), self.pose)
 
                     P_local.append([lx, ly])
                     Q_curr.append(local_robot_pts_3d[match.trainIdx][:2])
@@ -98,12 +98,12 @@ class Robot():
                     #visible_landmarks.append(lm)
 
                 # ransac refinement to get robust transformation estimation
-                #delta_R, delta_t, delta_theta = self.algorithmen.ransac_refinement(np.array(P_local), np.array(Q_curr))
+                #delta_R, delta_t, delta_theta = self.algo.ransac_refinement(np.array(P_local), np.array(Q_curr))
 
                 #Calculate in ODOM
                 if delta_R is not None:
                     # relative transformation from local robot coordinates to odom frame
-                    delta_tx_odom, delta_ty_odom = self.algorithmen.matrix_from_local_robot_to_odom_coords(Coordinate(delta_t[0], delta_t[1], z=0), self.pose)
+                    delta_tx_odom, delta_ty_odom = self.algo.matrix_from_local_robot_to_odom_coords(Coordinate(delta_t[0], delta_t[1], z=0), self.pose)
 
                     sigma_x = self.sigma_x
                     sigma_y = self.sigma_y
@@ -118,7 +118,7 @@ class Robot():
                     self.pose.y += delta_ty_odom + epsilon_y
                     self.pose.theta += delta_theta + epsilon_theta
                     #print(self.pose.theta)
-                    normalized_theta = self.algorithmen.normalize_angle(self.pose.theta)
+                    normalized_theta = self.algo.normalize_angle(self.pose.theta)
                     self.pose.theta = normalized_theta
                     pose_updated = True
                     
@@ -160,7 +160,7 @@ class Robot():
                     # add new landmarks to the map based on the current frame and the updated pose estimation
                     self.map_manager.add_new_landmarks(
                         local_robot_pts_3d, des_clean, matched_curr_indices, 
-                        self.pose, frame_index
+                        self.pose, frame_index, kinect_to_base_matrix
                     )
 
                     # remove old landmarks that are not seen anymore
