@@ -152,6 +152,7 @@ class SlamNode(Node):
         """
         Publish TF Message
         """
+        # initialize 
         t = TransformStamped()
         t.header.stamp = stamp
         t.header.frame_id = self.odom_frame

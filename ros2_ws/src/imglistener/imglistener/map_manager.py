@@ -14,6 +14,15 @@ class Landmark:
     last_seen: int
     ekf: ExtKalman
 
+    def clone(self):
+        return Landmark(
+            pt_glob=Coordinate(self.pt_glob.x, self.pt_glob.y, self.pt_glob.z),
+            des=self.des.copy() if isinstance(self.des, np.ndarray) else self.des,
+            seen_count=self.seen_count,
+            last_seen=self.last_seen,
+            ekf=self.ekf.clone()
+        )
+
 class MapManager:
     def __init__(self, config):
         self.config = config
@@ -27,7 +36,7 @@ class MapManager:
     def is_empty(self):
         return len(self.landmarks) == 0
 
-    def initialize_map(self, local_pts_3d, descriptors, frame_index):
+    def initialize_map(self, local_pts_3d, descriptors, frame_index, kinect_to_base_matrix):
         """create initial map with the first frame's keypoints
         !!!only applicable if pose is at 0.0.0!!!
         """
@@ -39,10 +48,10 @@ class MapManager:
                 des=descriptors[i],
                 seen_count=1,
                 last_seen=frame_index,
-                ekf=ExtKalman(np.array(pt), self.config)
+                ekf=ExtKalman(np.array(pt), self.config, kinect_to_base_matrix)
             ))
 
-    def add_new_landmarks(self, local_pts_3d, descriptors, matched_curr_indices, curr_pose: RobotOdom2D, frame_index):
+    def add_new_landmarks(self, local_pts_3d, descriptors, matched_curr_indices, curr_pose: RobotOdom2D, frame_index, kinect_to_base_matrix):
         """add new, unmatched points to the global map"""
         curr_pos_x, curr_pos_y, curr_theta = curr_pose.x, curr_pose.y, curr_pose.theta
 
@@ -65,7 +74,7 @@ class MapManager:
                     des=descriptors[i],
                     seen_count=1,
                     last_seen=frame_index,
-                    ekf=ExtKalman(np.array([gx, gy, pt[2]]), self.config)
+                    ekf=ExtKalman(np.array([gx, gy, pt[2]]), self.config, kinect_to_base_matrix)
                 ))
 
     def clean_map(self, frame_index):
@@ -80,3 +89,9 @@ class MapManager:
     def get_all_points_for_msg(self):
         """get all landmark points in the format for PointCloud2 message"""
         return [[lm.pt_glob.x/1000.0, lm.pt_glob.y/1000.0, lm.pt_glob.z/1000.0] for lm in self.landmarks]
+    
+    def clone(self):
+        """Fast clone of the MapManager and all contained landmarks"""
+        new_mm = MapManager(self.config)
+        new_mm.landmarks = [lm.clone() for lm in self.landmarks]
+        return new_mm

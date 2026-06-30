@@ -13,14 +13,14 @@ class configurations():
         self.NUM_ROBOTS = 25 #Count of Robots to be initialized in the system, if 0 or less, only one robot will be initialized (for single-robot SLAM)
 
         #ORB Configuration
-        self.ORB_NFEATURES = 1000 #Standard 500
+        self.ORB_NFEATURES = 600 #Standard 500
         self.ORB_PATCH_SIZE = 31 #Standard 31
         self.ORB_EDGE_THRESHOLD = 31 #Standard 31
         self.ORB_SCALE_FACTOR = 1.2 #Standard 1.2
-        self.ORB_NLEVELS = 8 #Standard 8
+        self.ORB_NLEVELS = 6 #Standard 8
         self.ORB_WTA_K = 2 #Standard 2
         self.ORB_FIRST_LEVEL = 0
-        self.ORB_FAST_THRESHOLD = 50 #Standard 10
+        self.ORB_FAST_THRESHOLD = 15 #Standard 10
 
         # Ransac Configuration
         self.RANSAC_ITERATIONS = 100 # Count of RANSAC iterations for robust pose estimation
@@ -42,7 +42,7 @@ class configurations():
         self.MIN_DEPTH = 400
         self.MAX_DEPTH = 7500
 
-        self.SEEN_COUNT_THRESHOLD = 5 # Minimum Count of times a landmark has been seen to be considered valid (quality metric)
+        self.SEEN_COUNT_THRESHOLD = 2 # Minimum Count of times a landmark has been seen to be considered valid (quality metric)
         self.LAST_SEEN_THRESHOLD = 15 # Count of the number of frames after which a landmark is considered outdated if it hasn't been seen again
 
         self.FRAME_COUNTER = 1 # Count of frames to skip after a pose update to increase stability

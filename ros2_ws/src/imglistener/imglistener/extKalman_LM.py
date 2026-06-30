@@ -8,11 +8,11 @@ from .data_types import RobotOdom2D
 
 
 class ExtKalman:
-    def __init__(self, x, config):
+    def __init__(self, x, config, kinect_to_base_matrix):
 
         self.config = config
-
         self.x = x
+        self.kinect_to_base_matrix = kinect_to_base_matrix[:3, :3,]  # Extract the rotation part of the transformation matrix
         self.state_func = 0
         self.meas_func = 0
 
@@ -47,7 +47,7 @@ class ExtKalman:
                             [0.0, 0.0, 1.0]])
 
     # set measurement noise -- eg. for EKF
-    def set_R(self, pt, depth_value, c, s):
+    def set_R(self, pt, depth_value):
         """
         Calculate the measurement noise covariance R based on the depth value and the camera intrinsics. The measurement noise in pixel space is approximated as a function of the depth, 
         and then transformed to 3D space (Base frame) using the Jacobian of the measurement function and the rotation from Kinect to base coordinates.
@@ -67,9 +67,10 @@ class ExtKalman:
                             [        0.0,               0.0,                 1.0]])
 
         #Rotation_Matrix from Kinect coordinates to base coordinates
-        R_rot_kb = np.array([[ c, -s, 0.0], 
-                             [s, c, 0.0],
-                             [0.0  , 0.0, 1.0]])
+        R_rot_kb = self.kinect_to_base_matrix
+        #R_rot_kb = np.array([[ c, -s, 0.0], 
+        #                     [s, c, 0.0],
+        #                     [0.0  , 0.0, 1.0]])
 
         R_sigma_kinect = J_pixel@R_sigma_pixel@J_pixel.T #Base Transformation of the measurement noise from pixel space to 3D space in the Kinect coordinate system
 
@@ -127,11 +128,10 @@ class ExtKalman:
         """
         Update step of the Landmark EKF
         """
-
         c = cos(curr_pose.theta)
         s = sin(curr_pose.theta)
 
-        self.set_R(pt, depth_value, c, s)
+        self.set_R(pt, depth_value)
 
         if self.P is None:
             # First Measurement: P = Measurementcovariance
@@ -148,11 +148,11 @@ class ExtKalman:
         #print("Predicted measurement:", z_tt1)
         #print("Actual measurement:", z)
         K = self.compute_kalman_gain()
+        likelihood = self.compute_measurement_likelihood(z, z_tt1)
         self.x = self.x + np.matmul(K, (z-z_tt1))
         self.P = self.P - np.matmul(K, np.matmul(self.JH, self.P))
         
 
-        likelihood = self.compute_measurement_likelihood(z, z_tt1)
         return self.x, self.P, likelihood
     
     def sigma_R_approximation(self, depth_value: float):
@@ -184,7 +184,7 @@ class ExtKalman:
 
         try:
             PHT = np.matmul(self.P, self.JH.transpose())         # PH^\top
-            HPHT = np.matmul(self.JH, PHT)                      # HPH^\top
+            HPHT = np.matmul(self.JH, PHT)                      # HPH^\top | HPHT = JH * P * JH.T
             S = HPHT + self.R  # Innovation covariance
             S_inv = np.linalg.inv(S)
             S_det = max(np.linalg.det(S), 1e-12)  # Avoid very small determinant for numerical stability
@@ -193,6 +193,7 @@ class ExtKalman:
 
             #likelihood = (1.0 / np.sqrt(((2 * np.pi) ** 3) * S_det)) * np.exp(exponent)
             log_likelihood = -0.5 * (3 * np.log(2 * np.pi) + np.log(S_det)) + exponent
+            #log_likelihood = np.log(likelihood)  # Log-likelihood for numerical stability
 
             #print(f"Landmark Likelihood: {log_likelihood:.6f}")
             #print(f"innovation={z-z_tt1}, sqrt(diag(S))={np.sqrt(np.diag(S))}, P_diag={np.diag(self.P)}")
@@ -203,7 +204,7 @@ class ExtKalman:
         
     def clone(self):
         """Fast clone of the EKF, including state, covariance, and Jacobians."""
-        new_ekf = ExtKalman(self.x.copy(), self.config)
+        new_ekf = ExtKalman(self.x.copy(), self.config, self.kinect_to_base_matrix)
         if self.P is not None:
             new_ekf.P = self.P.copy()
         new_ekf.JF = self.JF.copy()
