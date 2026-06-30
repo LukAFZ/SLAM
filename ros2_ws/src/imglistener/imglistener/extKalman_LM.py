@@ -68,9 +68,6 @@ class ExtKalman:
 
         #Rotation_Matrix from Kinect coordinates to base coordinates
         R_rot_kb = self.kinect_to_base_matrix
-        #R_rot_kb = np.array([[ c, -s, 0.0], 
-        #                     [s, c, 0.0],
-        #                     [0.0  , 0.0, 1.0]])
 
         R_sigma_kinect = J_pixel@R_sigma_pixel@J_pixel.T #Base Transformation of the measurement noise from pixel space to 3D space in the Kinect coordinate system
 
@@ -202,14 +199,3 @@ class ExtKalman:
             # Fallback block to guard against zero or singular determinant matrix crashes
             return self.fatal_error # very low likelihood in case of numerical issues to discourage this measurement update
         
-    def clone(self):
-        """Fast clone of the EKF, including state, covariance, and Jacobians."""
-        new_ekf = ExtKalman(self.x.copy(), self.config, self.kinect_to_base_matrix)
-        if self.P is not None:
-            new_ekf.P = self.P.copy()
-        new_ekf.JF = self.JF.copy()
-        if hasattr(self, 'JH') and self.JH is not None:
-            new_ekf.JH = self.JH.copy()
-        if hasattr(self, 'R') and self.R is not None:
-            new_ekf.R = self.R.copy()
-        return new_ekf

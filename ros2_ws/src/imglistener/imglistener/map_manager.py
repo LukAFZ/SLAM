@@ -14,14 +14,7 @@ class Landmark:
     last_seen: int
     ekf: ExtKalman
 
-    def clone(self):
-        return Landmark(
-            pt_glob=Coordinate(self.pt_glob.x, self.pt_glob.y, self.pt_glob.z),
-            des=self.des.copy() if isinstance(self.des, np.ndarray) else self.des,
-            seen_count=self.seen_count,
-            last_seen=self.last_seen,
-            ekf=self.ekf.clone()
-        )
+
 
 class MapManager:
     def __init__(self, config):

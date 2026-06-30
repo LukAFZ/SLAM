@@ -111,7 +111,7 @@ class SlamNode(Node):
             return
         # Count to zero after an update to skip frames for stability
         if self.frame_counter <=0:
-            # Convert ROS image message to OpenCV format
+            # Convert ROS image message to OpenCV format in grayscale
             frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding='mono8')
 
             self.profiler.enable()
@@ -178,7 +178,7 @@ class SlamNode(Node):
         """
         Publish the array of TF messages for all virtual robots in the list. Each robot will have its own unique child frame ID based on its ID.
         """
-        # Eine leere Liste für alle Transformationen erstellen
+        # create an empty list for all transformations
         tf_messages = []
         current_time = self.get_clock().now().to_msg()
 
@@ -187,16 +187,15 @@ class SlamNode(Node):
             t.header.stamp = stamp if stamp is not None else current_time
             t.header.frame_id = self.odom_frame
             
-            # WICHTIG: Jedem Partikel einen eindeutigen Frame-Namen geben!
+            #each particle gets a unique frame name based on its ID
             t.child_frame_id = f"virtual_robot_{robot.id}"
 
-            # Position setzen (Achtung: Falls deine Posen im Code in mm gerechnet werden, 
-            # musst du hier durch 1000.0 teilen. Wenn sie in Metern sind, lass das '/ 1000.0' weg!)
+            # set tranlation in meters as the robot's pose is in millimeters
             t.transform.translation.x = robot.pose.x / 1000.0
             t.transform.translation.y = robot.pose.y / 1000.0
             t.transform.translation.z = 0.0
 
-            # Rotation genau wie in deiner Vorlage berechnen
+            # Convert Euler angles to Quaternion
             theta = robot.pose.theta
             euler = Rotation.from_euler('z', float(theta))
             quat = euler.as_quat(canonical=True)
@@ -207,10 +206,10 @@ class SlamNode(Node):
             t.transform.rotation.z = quat[2]
             t.transform.rotation.w = quat[3]
 
-            # Nachricht an die Liste anhängen
+            # append the transformation to the list of messages
             tf_messages.append(t)
 
-        # Alle Transformationen gesammelt als Array/Liste absenden
+        # send all transformations at once if there are any
         if tf_messages:
             self.tf_broadcaster.sendTransform(tf_messages)
 
@@ -232,7 +231,7 @@ class SlamNode(Node):
         msg.pose.pose.position.y = y
         msg.pose.pose.position.z = 0.0
 
-        # Euler-Winkel zu Quaternion konvertieren
+        # convert theta to quaternion
         r = Rotation.from_euler('z', float(theta))
         quat = r.as_quat(canonical=True)
         msg.pose.pose.orientation.x = quat[0]
@@ -240,24 +239,11 @@ class SlamNode(Node):
         msg.pose.pose.orientation.z = quat[2]
         msg.pose.pose.orientation.w = quat[3]
         
-        cov = [0.0] * 36
-        """
-        # Mapping der P-Matrix (x, y, theta) auf das ROS 6x6 Schema:
-        cov[0]  = P_matrix[0, 0]/1000000 # Var(x)
-        cov[1]  = P_matrix[0, 1]/1000000 # Cov(x, y)
-        cov[5]  = P_matrix[0, 2]/1000 # Cov(x, theta)
-        
-        cov[6]  = P_matrix[1, 0]/1000000 # Cov(y, x)
-        cov[7]  = P_matrix[1, 1]/1000000 # Var(y)
-        cov[11] = P_matrix[1, 2]/1000 # Cov(y, theta)
-        
-        cov[30] = P_matrix[2, 0]/1000 # Cov(theta, x)
-        cov[31] = P_matrix[2, 1]/1000 # Cov(theta, y)
-        cov[35] = P_matrix[2, 2] # Var(theta)
-        """
+        # covariance dummy values, as we don't have covariance information from the SLAM algorithm
+        cov = self.config.POSE_COVARIANCE
         msg.pose.covariance = cov
 
-        # Veröffentlichen
+        # publish the odometry message
         self.odom_publisher.publish(msg)    
 
 def main(args=None):

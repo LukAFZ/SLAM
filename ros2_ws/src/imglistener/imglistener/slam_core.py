@@ -14,14 +14,7 @@ class Robots:
     likelihood: float = 0.0
     log_weight: float = 0.0
 
-    def clone(self, new_id: int):
-        return Robots(
-            id=new_id,
-            pose=RobotOdom2D(self.pose.x, self.pose.y, self.pose.theta),
-            robot=self.robot.clone(),
-            likelihood=1.0, 
-            log_weight=0.0  # Set back history
-        )
+
 
 class VisualSLAMCore:
     def __init__(self):
@@ -37,11 +30,13 @@ class VisualSLAMCore:
                                   WTA_K=self.config.ORB_WTA_K,
                                   nlevels=self.config.ORB_NLEVELS,
                                   scaleFactor=self.config.ORB_SCALE_FACTOR)
+        # Initiate Brute-Force Matcher
         self.bf = cv2.BFMatcher(cv2.NORM_HAMMING, crossCheck=True)
         
         # Roboter-Pose & Index-Tracking
         self.best_pose = RobotOdom2D(x=0.0, y=0.0, theta=0.0)
 
+        # Initialize a list to hold multiple robot instances
         self.robots = []
         self.num_robots = self.config.NUM_ROBOTS
         if self.num_robots <= 0:
@@ -54,34 +49,26 @@ class VisualSLAMCore:
                 likelihood=0.0
             ))
 
+        # Initialize previous descriptors and 3D points for frame-to-frame matching
         self.previous_des = None
         self.previous_local_pts_3d = None
 
 
     def process_frame(self, frame, depth_frame, kinect_to_base_matrix, base_to_kinect_matrix, frame_index):
         """
-        Berechnung der Pose des Roboters und Aktualisierung der Karte basierend auf dem aktuellen RGB- und Tiefenbild, sowie der aktuellen Pose-Schätzung und dem Kartenstatus.
-        Rückgabe von pose_updated, x, y, theta
+        calculate the pose of the robot and update the map based on the current grayscale and depth image, as well as the current pose estimate and map status.
+        Returns pose_updated, x, y, theta
         """
+        # Initialize variables
         pose_updated = False
         best_map_manager = None
-        
+        kp_clean = []
+
         # find the keypoints with ORB
         kp = self.orb.detect(frame, None)
         
-        kp_clean = []
-        # if depth frame is available, filter keypoints based on depth values to remove outliers and points that are too close or too far
-        # if depth_frame is not None:
-        #     # cycle through keypoints
-        #     for point in kp:
-        #         # get x,y coordinates of keypoint in pixel space
-        #         x, y = int(point.pt[0]), int(point.pt[1])
-        #         # get depth value at keypoint location and convert to meters
-        #         depth = depth_frame[y, x]
-        #         if self.config.min_depth < depth < self.config.max_depth: # filter out invalid depth values
-        #             kp_clean.append(point)
-        # else:
-        #     return False, self.best_pose, self.map_manager # skip processing if depth frame is not available
+      
+
         occupied_cells = set()
         if depth_frame is not None:
             
@@ -129,19 +116,17 @@ class VisualSLAMCore:
                 Q_curr = np.array([local_robot_pts_3d[m.trainIdx][:2] for m in f2f_matches])
                 delta_R, delta_t, delta_theta = self.algo.ransac_refinement(P_prev, Q_curr)
 
-            #log_robot_likelihood = []
+            #best robot selection
             for selected_robot in self.robots:
-                #best robot selection to be implemented here
+                
+                # Update the robot's pose and map based on the current frame and the previous frame's data
                 pose_updated, selected_robot.pose, log_r_l = selected_robot.robot.update_robot(kp_clean, des_clean, depth_frame, frame_index, base_to_kinect_matrix, kinect_to_base_matrix, local_robot_pts_3d, delta_R, delta_t, delta_theta)
-                #if len(des_clean) > 0:
-                #    log_r_l = log_r_l / len(des_clean) # normalize log likelihood by number of descriptors to avoid bias towards frames with more features
-                #else:
-                #    log_r_l = -700
+
+                # save the log likelihood for the selected robot
                 selected_robot.log_weight = log_r_l/len(des_clean)
-                print(selected_robot.log_weight) # accumulate log likelihood over time
-                #log_robot_likelihood.append(log_r_l)
 
 
+            # Find the robot with the maximum log likelihood for numerical stability
             max_log_l = max(robot.log_weight for robot in self.robots) # find maximum log likelihood among all robots for numerical stability (underflow prevention)
 
             # Subtract the maximum log likelihood from each robot's log likelihood to prevent numerical underflow when exponentiating.
@@ -161,9 +146,9 @@ class VisualSLAMCore:
                     robot.likelihood = 1.0 / self.num_robots
 
             
-
+            # Select the robot with the maximum likelihood as the best estimate
             max_likelihood_robot = max(self.robots, key=lambda r: r.likelihood)
-            print(f"Best robot ID: {max_likelihood_robot.id}, Max_Likelihood: {max_likelihood_robot.likelihood}")
+
 
 
             self.best_pose = max_likelihood_robot.pose

@@ -19,7 +19,7 @@ class configurations():
         self.ORB_SCALE_FACTOR = 1.2 #Standard 1.2
         self.ORB_NLEVELS = 6 #Standard 8
         self.ORB_WTA_K = 2 #Standard 2
-        self.ORB_FIRST_LEVEL = 0
+        self.ORB_FIRST_LEVEL = 0 #Standard 0
         self.ORB_FAST_THRESHOLD = 15 #Standard 10
 
         # Ransac Configuration
@@ -51,6 +51,9 @@ class configurations():
         self.SIGMA_X = 1.5 # in mm
         self.SIGMA_Y = 1.5 # in mm
         self.SIGMA_THETA = 0.002 # in radians
+
+        #pose covariance dummy values for the odometry message (needed for ROS2 message type)
+        self.POSE_COVARIANCE = [0.0] * 36
 
         #Sigma R-Approximation
         self.A = 0.001477 #Coefficient a for depth error approximation (constant offset)

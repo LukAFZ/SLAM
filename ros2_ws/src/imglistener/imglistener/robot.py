@@ -43,12 +43,6 @@ class Robot():
         self.algo = algorithms()
         self.map_initialized = False
 
-    def clone(self):
-        """Creates a new robot and only copies the mutable states"""
-        new_robot = Robot() # Instanziiert automatisch frisch einen neuen BFMatcher!
-        new_robot.pose = RobotOdom2D(self.pose.x, self.pose.y, self.pose.theta)
-        new_robot.map_manager = self.map_manager.clone()
-        return new_robot
 
     def update_robot(self, kp_clean, des_clean, depth_frame, frame_index, base_to_kinect_matrix, kinect_to_base_matrix, local_robot_pts_3d, delta_R, delta_t, delta_theta):
         """
@@ -76,7 +70,7 @@ class Robot():
                 P_local = []
                 Q_curr  = []
                 matched_curr_indices = set()
-                #visible_landmarks = []
+  
 
                 for match in matches:
                     map_idx = visible_map_indices[match.queryIdx] # Landmark index in the global map
@@ -90,21 +84,19 @@ class Robot():
                     matched_curr_indices.add(match.trainIdx)
 
                     lm = self.map_manager.landmarks[map_idx]
-                    #z_pt = local_robot_pts_3d[match.trainIdx][:2]
-                    #depth_val = local_robot_pts_3d[match.trainIdx][2]
+
 
                     lm.seen_count += 1
                     lm.last_seen = frame_index
-                    #visible_landmarks.append(lm)
 
-                # ransac refinement to get robust transformation estimation
-                #delta_R, delta_t, delta_theta = self.algo.ransac_refinement(np.array(P_local), np.array(Q_curr))
+
 
                 #Calculate in ODOM
                 if delta_R is not None:
                     # relative transformation from local robot coordinates to odom frame
                     delta_tx_odom, delta_ty_odom = self.algo.matrix_from_local_robot_to_odom_coords(Coordinate(delta_t[0], delta_t[1], z=0), self.pose)
 
+                    # Add Gaussian noise to the estimated transformation based on the configured standard deviations
                     sigma_x = self.sigma_x
                     sigma_y = self.sigma_y
                     sigma_theta = self.sigma_theta
@@ -113,7 +105,7 @@ class Robot():
                     epsilon_y = np.random.normal(0, sigma_y)
                     epsilon_theta = np.random.normal(0, sigma_theta)
 
-                    # update current pose with the estimated transformation
+                    # update current pose with the estimated transformation + noise
                     self.pose.x += delta_tx_odom + epsilon_x
                     self.pose.y += delta_ty_odom + epsilon_y
                     self.pose.theta += delta_theta + epsilon_theta
@@ -129,7 +121,6 @@ class Robot():
                     Q_transformed = (delta_R @ Q_array.T).T + delta_t
                     errors = np.linalg.norm(P_array - Q_transformed, axis=1)
 
-                    accepted_inlier_count = 0
 
                     for i, match in enumerate(matches):
                         if errors[i] < self.ransac_threshold: # Only allow true insliers to update the map
@@ -148,12 +139,10 @@ class Robot():
                                 np.array([kp_clean[train_idx].pt[0], kp_clean[train_idx].pt[1]]), # x and y pixel coordinates of the matched keypoint
                                 depth
                             )
-
+                            
+                            # Accumulate the log likelihood for the robot's pose based on the matched landmarks
                             log_robot_likelihood += log_likelihood
-                            #self.map_manager.landmarks[map_idx]['pt_glob'] = [kalman_result[0], kalman_result[1], kalman_result[2]]
-                            self.map_manager.landmarks[map_idx]
                             lm.pt_glob = Coordinate(x=kalman_result[0], y=kalman_result[1], z=kalman_result[2])
-                            accepted_inlier_count += 1
                         else:
                             #Match is rejected as outlier by RANSAC, penalize likelihood
                             log_robot_likelihood += self.fatal_error # penalize outliers in the likelihood calculation
@@ -169,15 +158,13 @@ class Robot():
                     #not valid if delta is too high, likely an outlier
                     if (np.linalg.norm(delta_t) > self.ransac_max_deviation_delta or
                             abs(delta_theta) > self.ransac_max_deviation_theta):
-                        print(f"RANSAC sehr schlecht: |Δt|={np.linalg.norm(delta_t):.1f}mm, "
-                            f"Δθ={np.degrees(delta_theta):.1f}°")
                         log_robot_likelihood = self.fatal_error
 
                 else:
                     print("RANSAC failed to find a valid transformation.")
                     log_robot_likelihood = self.fatal_error # very low likelihood if RANSAC fails to discourage this pose update
             else:
-                print(f"Nicht genug matches gefunden: {len(matches)}")
+                print(f"Not enough matches: {len(matches)}")
                 log_robot_likelihood = self.fatal_error # very low likelihood if not enough matches are found to discourage this pose update
         else:
             print("No visible landmarks to match with.")
