@@ -139,7 +139,6 @@ class VisualSLAMCore:
             if total_weight > 0:
                 for robot in self.robots:
                     robot.likelihood /= total_weight
-                    print(f"Robot ID: {robot.id}, Log_Likelihood-Maximum des Roboters: {robot.log_weight}, Partikel Weight: {robot.likelihood}")
             else:
                 # If all likelihoods are zero (which shouldn't happen), reset to uniform distribution
                 for robot in self.robots:

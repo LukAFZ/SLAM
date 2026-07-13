@@ -129,7 +129,7 @@ class SlamNode(Node):
             header.frame_id = self.odom_frame
 
             if pose_updated:
-                print(f"Pose aktualisiert: x={best_pose.x:.2f} mm, y={best_pose.y:.2f} mm, theta={best_pose.theta:.2f} rad")
+
                 # Publish TF and Odometry for visualization and downstream tasks
                 self.publish_tf(best_pose.x / 1000.0, best_pose.y / 1000.0, best_pose.theta, msg.header.stamp)
                 self.publish_robots_tf_array(self.slam.robots, msg.header.stamp)
@@ -146,7 +146,7 @@ class SlamNode(Node):
 
         self.frame_counter -= 1
         self.frame_index += 1
-        print(f"Frame Index: {self.frame_index}, Frame Counter: {self.frame_counter}")
+
 
     def publish_tf(self, x, y, theta, stamp):
         """

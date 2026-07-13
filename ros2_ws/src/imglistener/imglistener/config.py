@@ -10,7 +10,7 @@ class configurations():
         self.PCL_TOPIC = '/serf01/nav_rgbd_1/pointcloud'
         self.ODOM_TOPIC = '/serf01/odometry/project_slam'
 
-        self.NUM_ROBOTS = 25 #Count of Robots to be initialized in the system, if 0 or less, only one robot will be initialized (for single-robot SLAM)
+        self.NUM_ROBOTS = 20 #Count of Robots to be initialized in the system, if 0 or less, only one robot will be initialized (for single-robot SLAM)
 
         #ORB Configuration
         self.ORB_NFEATURES = 600 #Standard 500

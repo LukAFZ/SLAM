@@ -116,22 +116,22 @@ class algorithms:
 
         # Calculate the rotation angle (theta) using the Kabsch algorithm
         theta = math.atan2(sum(Q_centered[:,0]*P_centered[:,1] - Q_centered[:,1]*P_centered[:,0]), sum(Q_centered[:,0]*P_centered[:,0] + Q_centered[:,1]*P_centered[:,1]))
-        #print(f"Rotation angle (theta): {math.degrees(theta):.2f} degrees")
+
 
         # Calculate the rotation matrix using the rotation angle
         Rotation_matrix = np.array([[math.cos(theta), -math.sin(theta)],
                                     [math.sin(theta), math.cos(theta)]])
         # Calculate the translation vector using the centroids and the rotation matrix
         Translation = P_middle - Rotation_matrix @ Q_middle
-        #print(f"Translation vector: {Translation}")
+
         return Rotation_matrix, Translation, theta
     
     def calculate_local_cords_from_matches(self, kp_clean, des_clean, kinect_to_base_matrix, depth_frame):
         """
         Calculates the local coordinates of the landmarks based on the depth values and the camera intrinsics using the pinhole camera model and transforms them to the robot's local coordinate system.
         """
-        #current_points_3d = []
-        #current_descriptors = []
+
+
         local_robot_pts_3d = []
         for point, des in zip(kp_clean, des_clean):
             depth = float(depth_frame[int(point.pt[1]), int(point.pt[0])])
@@ -141,9 +141,6 @@ class algorithms:
             y_c = (point.pt[1] - self.cv) * depth / self.f
             z_c = depth
 
-            #current_points_3d.append((x_c, y_c, z_c))
-            #current_descriptors.append(des)
-            # Roboterkoordinaten (X=vorne, Y=links, Z=hoch)
 
             pt_kinect = np.array([x_c, y_c, z_c, 1.0])
             pt_base = kinect_to_base_matrix @ pt_kinect

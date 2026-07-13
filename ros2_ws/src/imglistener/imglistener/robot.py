@@ -109,7 +109,7 @@ class Robot():
                     self.pose.x += delta_tx_odom + epsilon_x
                     self.pose.y += delta_ty_odom + epsilon_y
                     self.pose.theta += delta_theta + epsilon_theta
-                    #print(self.pose.theta)
+
                     normalized_theta = self.algo.normalize_angle(self.pose.theta)
                     self.pose.theta = normalized_theta
                     pose_updated = True

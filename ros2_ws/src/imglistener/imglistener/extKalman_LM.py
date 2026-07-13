@@ -134,16 +134,15 @@ class ExtKalman:
             # First Measurement: P = Measurementcovariance
             self.P = self.R.copy()
 
-        #print("State:", self.x)
+
         x_tt1, P_tt1 = self.predict_state()
-        #print("Predicted state:", x_tt1)
+
         self.set_JH(c, s)
         
         self.P = P_tt1
 
         z_tt1 = self.predict_measurement(curr_pose, c, s)
-        #print("Predicted measurement:", z_tt1)
-        #print("Actual measurement:", z)
+
         K = self.compute_kalman_gain()
         likelihood = self.compute_measurement_likelihood(z, z_tt1)
         self.x = self.x + np.matmul(K, (z-z_tt1))
@@ -192,8 +191,7 @@ class ExtKalman:
             log_likelihood = -0.5 * (3 * np.log(2 * np.pi) + np.log(S_det)) + exponent
             #log_likelihood = np.log(likelihood)  # Log-likelihood for numerical stability
 
-            #print(f"Landmark Likelihood: {log_likelihood:.6f}")
-            #print(f"innovation={z-z_tt1}, sqrt(diag(S))={np.sqrt(np.diag(S))}, P_diag={np.diag(self.P)}")
+
             return log_likelihood
         except np.linalg.LinAlgError:
             # Fallback block to guard against zero or singular determinant matrix crashes
